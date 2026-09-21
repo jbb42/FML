@@ -60,6 +60,12 @@ class Particle {
     //=============================================================
     // Optional things below:
     //=============================================================
+    float bias_weights[5];
+    static inline int active_bias_index = 0; // Choose which bias parameter to use
+
+	double get_mass() const {
+    return (active_bias_index == 0) ? 1.0 : static_cast<double>(bias_weights[active_bias_index]) + 1.0;
+}
 
     //=============================================================
     // Add ID to particles (ok to skip this, but if so this will not be

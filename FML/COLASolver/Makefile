@@ -43,7 +43,7 @@ USE_CHUNKPIX     = false
 #===================================================
 
 # Main library include (path to folder containin FML/)
-FML_INCLUDE    = $(HOME)/local/FML
+FML_INCLUDE    = $(HOME)/pc/Dokumenter/FML
 
 # FFTW
 FFTW_INCLUDE   = $(HOME)/local/include
@@ -58,8 +58,8 @@ GSL_LIB        = $(HOME)/local/lib
 GSL_LINK       = -lgsl -lgslcblas
 
 # LUA
-LUA_INCLUDE    = $(HOME)/local/include
-LUA_LIB        = $(HOME)/local/lib
+LUA_INCLUDE = /mn/stornext/u3/hansw/local/include
+LUA_LIB = /mn/stornext/u3/hansw/local/lib -Wl,-rpath=/mn/stornext/u3/hansw/local/lib -llua
 LUA_LINK       = -llua -ldl
 
 # HEALPIX

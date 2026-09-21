@@ -38,7 +38,7 @@ void ExamplesPower() {
     const bool TEST_MULTIPOLES = true;
     const bool TEST_MULTIPOLES_GRID = true;
 
-    const int Nmesh = 64;
+    const int Nmesh = 1024;
     const int ell_max = 4;
     const std::string density_assignment_method = "CIC";
     const double box = 1024.0;

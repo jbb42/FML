@@ -410,6 +410,73 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
                                                                pofk_interlacing);
     pofk_cb_binning.scale(simulation_boxsize);
 
+	//=============================================================
+	// Compute bias power spectra
+	//=============================================================
+
+    const auto [nleft, nright] = FML::INTERPOLATION::get_extra_slices_needed_for_density_assignment(pofk_density_assignment_method);
+
+    // Function to subtract two grids a - b and store the result in a
+    auto subtract_grid = [](FML::GRID::FFTWGrid<NDIM> &a, FML::GRID::FFTWGrid<NDIM> &b) {
+        const size_t ncell = (size_t)a.get_local_nx() * a.get_nmesh() * (a.get_nmesh() / 2 + 1);
+        #ifdef USE_OMP
+        #pragma omp parallel for
+        #endif
+        for (size_t c = 0; c < ncell; c++)
+            a.set_fourier_from_index(c, a.get_fourier_from_index(c) - b.get_fourier_from_index(c));
+    };
+
+    const int active_fields = 3; // Change this to 5 when you implement the last two
+    
+    // Store grids in a vector to avoid redundant FFTs
+    std::vector<std::unique_ptr<FML::GRID::FFTWGrid<NDIM>>> grids;
+    grids.reserve(active_fields);
+
+    for (int i = 0; i < active_fields; i++) {
+        grids.push_back(std::make_unique<FML::GRID::FFTWGrid<NDIM>>(pofk_nmesh, nleft, nright));
+
+        T::active_bias_index = i;
+        auto& current_grid = *grids[i];
+
+        FML::INTERPOLATION::particles_to_fourier_grid(
+            part.get_particles_ptr(), part.get_npart(), part.get_npart_total(),
+            current_grid, pofk_density_assignment_method, pofk_interlacing);
+            
+        FML::INTERPOLATION::deconvolve_window_function_fourier<NDIM>(
+            current_grid, pofk_density_assignment_method);
+
+        // Subtract the baseline grid (index 0) from all bias fields
+        if (i > 0) {
+            subtract_grid(current_grid, *grids[0]); 
+        }
+    }
+    T::active_bias_index = 0; // Reset state
+
+    // 3. Compute Auto and Cross Spectra purely from pre-calculated grids
+    for (int i = 0; i < active_fields; i++) {
+        for (int j = i; j < active_fields; j++) {
+            
+            FML::CORRELATIONFUNCTIONS::PowerSpectrumBinning<NDIM> p_ij(pofk_nmesh / 2);
+            p_ij.subtract_shotnoise = false;
+
+            if (i == j) {
+                FML::CORRELATIONFUNCTIONS::bin_up_power_spectrum(*grids[i], p_ij);
+            } else {
+                FML::CORRELATIONFUNCTIONS::bin_up_cross_power_spectrum(*grids[i], *grids[j], p_ij);
+            }
+
+            p_ij.scale(simulation_boxsize);
+
+            if (FML::ThisTask == 0) {
+                std::string filename = snapshot_folder + "/pofk_" + std::to_string(i) + std::to_string(j) + ".txt";
+                std::ofstream fp(filename);
+                for (int k = 0; k < p_ij.n; k++) {
+                    fp << p_ij.kbin[k] << " " << p_ij.pofk[k] << "\n";
+                }
+            }
+        }
+    }
+    
     /* ...or do it this way for which we can compute the total power-spectrum by adding on the neutrinos
     const auto nleftright =
     FML::INTERPOLATION::get_extra_slices_needed_for_density_assignment(pofk_density_assignment_method); const int nleft

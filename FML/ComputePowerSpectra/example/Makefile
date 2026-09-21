@@ -33,11 +33,11 @@ USE_DEBUG        = false
 #===================================================
 
 # Main library include (path to folder containin FML/)
-FML_INCLUDE    = $(HOME)/local/FML
+FML_INCLUDE    = $(HOME)/pc/Dokumenter/FML
 
 # FFTW : only needed if USE_FFTW = true
-FFTW_INCLUDE   = $(HOME)/local/include
-FFTW_LIB       = $(HOME)/local/lib
+FFTW_INCLUDE = $(HOME)/local/include
+FFTW_LIB     = $(HOME)/local/lib -lfftw3_mpi -lfftw3
 FFTW_LINK      = -lfftw3
 FFTW_MPI_LINK  = -lfftw3_mpi
 FFTW_OMP_LINK  = -lfftw3_threads

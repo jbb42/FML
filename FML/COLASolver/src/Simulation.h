@@ -22,6 +22,7 @@
 #include "Cosmology.h"
 #include "GravityModel.h"
 #include "Lightcone/Lightcone.h"
+// #include "bias_diagnostics.h"
 
 #include <array>
 #include <cmath>
@@ -1188,6 +1189,89 @@ void NBodySimulation<NDIM, T>::init() {
                                                     simulation_boxsize,
                                                     ic_initial_redshift,
                                                     velocity_norms);
+
+
+        //=============================================================================
+        // Extract bias fields
+        //=============================================================================
+        
+        FML::GRID::FFTWGrid<NDIM> delta_L_grid = delta_ini_fourier;
+        delta_L_grid.fftw_c2r(); // Transform to real space
+
+        // --- ADDED: Scale grid from z_ini to output redshift using growth factor ---
+        const int nmesh = delta_L_grid.get_nmesh();
+        const int local_nx = delta_L_grid.get_local_nx();
+        const int nz_real = 2 * (nmesh / 2 + 1);
+        const long long local_grid_size = (long long)local_nx * nmesh * nz_real;
+        double* real_data = delta_L_grid.get_real_grid();
+
+        double a_ini = 1.0 / (1.0 + ic_initial_redshift);
+        double a_out = 1.0 / (1.0 + output_redshifts[0]);
+        double growth_shift = grav->get_D_1LPT(a_out) / grav->get_D_1LPT(a_ini);        
+
+        #ifdef USE_OMP
+        #pragma omp parallel for
+        #endif
+        for (long long idx = 0; idx < local_grid_size; idx++) {
+            real_data[idx] *= growth_shift; 
+        }
+        // --------------------------------------------------------------------------
+
+        // 1. Route particles to the MPI domain that owns their Lagrangian 'q' coordinate
+        auto* particle_array = part.get_particles_ptr();
+        for (size_t p = 0; p < part.get_npart(); p++) {
+            for(int idim = 0; idim < NDIM; idim++) std::swap(particle_array[p].pos[idim], particle_array[p].q[idim]);
+        }
+        part.communicate_particles(); 
+        
+        // Re-fetch pointer/count as particles have migrated across ranks!
+        particle_array = part.get_particles_ptr();
+        const size_t local_npart = part.get_npart();
+
+        // 2. Pre-allocate vector and interpolate at the Lagrangian positions (q)
+        std::vector<double> interpolated_values(local_npart);
+        FML::INTERPOLATION::interpolate_grid_to_particle_positions(
+            delta_L_grid,
+            particle_array,
+            local_npart,
+            interpolated_values,
+            "CIC"
+        );
+
+        // 3. Compute sigma_sq robustly from the interpolated particle values
+        double local_sum_sq = 0.0;
+        #ifdef USE_OMP
+        #pragma omp parallel for reduction(+:local_sum_sq)
+        #endif
+        for (size_t p = 0; p < local_npart; p++) {
+            local_sum_sq += interpolated_values[p] * interpolated_values[p];
+        }
+
+        double global_sum_sq;
+        MPI_Allreduce(&local_sum_sq, &global_sum_sq, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        double sigma_sq = global_sum_sq / static_cast<double>(part.get_npart_total());
+
+        // 4. Assign the bias weights
+        #ifdef USE_OMP
+        #pragma omp parallel for
+        #endif
+        for (size_t p = 0; p < local_npart; p++) {
+            double delta_val = interpolated_values[p];
+            particle_array[p].bias_weights[1] = static_cast<float>(delta_val);
+            particle_array[p].bias_weights[2] = static_cast<float>(delta_val * delta_val - sigma_sq);
+        }
+
+        // 5. Swap back to Eulerian coordinates and restore original MPI domains
+        for (size_t p = 0; p < local_npart; p++) {
+            for(int idim = 0; idim < NDIM; idim++) std::swap(particle_array[p].pos[idim], particle_array[p].q[idim]);
+        }
+        part.communicate_particles();
+
+        // bias_diag::check_weights(part, &delta_L_grid, sigma_sq);
+        // bias_diag::check_mass(part);
+        // bias_diag::check_spectra(part, pofk_nmesh, pofk_density_assignment_method, pofk_interlacing);
+        //=============================================================================
+
 
         // Store potential in the class
         if (simulation_use_cola and simulation_use_scaledependent_cola) {

@@ -19,7 +19,7 @@ all_parameters_must_be_in_file = true
 -- Label
 simulation_name = "TestSim"
 -- Boxsize of simulation in Mpc/h
-simulation_boxsize = 512.0
+simulation_boxsize = 1024.0
 
 ------------------------------------------------------------
 -- COLA
@@ -230,7 +230,7 @@ end
 -- Particles
 ------------------------------------------------------------
 -- Number of CDM+b particles per dimension
-particle_Npart_1D = 128
+particle_Npart_1D = 256
 -- Factor of how many more particles to allocate space
 particle_allocation_factor = 1.25
 
