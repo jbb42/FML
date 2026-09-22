@@ -1195,29 +1195,26 @@ void NBodySimulation<NDIM, T>::init() {
         // Extract bias fields
         //=============================================================================
         
+        // 1. Copy and scale directly in Fourier space (no padding/stride headaches!)
         FML::GRID::FFTWGrid<NDIM> delta_L_grid = delta_ini_fourier;
-        delta_L_grid.fftw_c2r(); // Transform to real space
-
-        // --- ADDED: Scale grid from z_ini to output redshift using growth factor ---
-        const int nmesh = delta_L_grid.get_nmesh();
-        const int local_nx = delta_L_grid.get_local_nx();
-        const int nz_real = 2 * (nmesh / 2 + 1);
-        const long long local_grid_size = (long long)local_nx * nmesh * nz_real;
-        double* real_data = delta_L_grid.get_real_grid();
-
+        
         double a_ini = 1.0 / (1.0 + ic_initial_redshift);
         double a_out = 1.0 / (1.0 + output_redshifts[0]);
         double growth_shift = grav->get_D_1LPT(a_out) / grav->get_D_1LPT(a_ini);        
 
+        // Scale all Fourier modes uniformly
+        const size_t n_fourier = (size_t)delta_L_grid.get_local_nx() * delta_L_grid.get_nmesh() * (delta_L_grid.get_nmesh() / 2 + 1);
         #ifdef USE_OMP
         #pragma omp parallel for
         #endif
-        for (long long idx = 0; idx < local_grid_size; idx++) {
-            real_data[idx] *= growth_shift; 
+        for (size_t c = 0; c < n_fourier; c++) {
+            delta_L_grid.set_fourier_from_index(c, delta_L_grid.get_fourier_from_index(c) * growth_shift);
         }
-        // --------------------------------------------------------------------------
 
-        // 1. Route particles to the MPI domain that owns their Lagrangian 'q' coordinate
+        // Now transform to real space with the growth factor already baked in
+        delta_L_grid.fftw_c2r(); 
+
+        // 2. Route particles to the MPI domain that owns their Lagrangian 'q' coordinate
         auto* particle_array = part.get_particles_ptr();
         for (size_t p = 0; p < part.get_npart(); p++) {
             for(int idim = 0; idim < NDIM; idim++) std::swap(particle_array[p].pos[idim], particle_array[p].q[idim]);
@@ -1228,7 +1225,7 @@ void NBodySimulation<NDIM, T>::init() {
         particle_array = part.get_particles_ptr();
         const size_t local_npart = part.get_npart();
 
-        // 2. Pre-allocate vector and interpolate at the Lagrangian positions (q)
+        // 3. Interpolate at the Lagrangian positions (q)
         std::vector<double> interpolated_values(local_npart);
         FML::INTERPOLATION::interpolate_grid_to_particle_positions(
             delta_L_grid,
@@ -1238,7 +1235,7 @@ void NBodySimulation<NDIM, T>::init() {
             "CIC"
         );
 
-        // 3. Compute sigma_sq robustly from the interpolated particle values
+        // 4. Compute sigma_sq robustly from the interpolated particle values
         double local_sum_sq = 0.0;
         #ifdef USE_OMP
         #pragma omp parallel for reduction(+:local_sum_sq)
@@ -1251,7 +1248,7 @@ void NBodySimulation<NDIM, T>::init() {
         MPI_Allreduce(&local_sum_sq, &global_sum_sq, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         double sigma_sq = global_sum_sq / static_cast<double>(part.get_npart_total());
 
-        // 4. Assign the bias weights
+        // 5. Assign the bias weights
         #ifdef USE_OMP
         #pragma omp parallel for
         #endif
@@ -1261,7 +1258,7 @@ void NBodySimulation<NDIM, T>::init() {
             particle_array[p].bias_weights[2] = static_cast<float>(delta_val * delta_val - sigma_sq);
         }
 
-        // 5. Swap back to Eulerian coordinates and restore original MPI domains
+        // 6. Swap back to Eulerian coordinates and restore original MPI domains
         for (size_t p = 0; p < local_npart; p++) {
             for(int idim = 0; idim < NDIM; idim++) std::swap(particle_array[p].pos[idim], particle_array[p].q[idim]);
         }
