@@ -413,10 +413,11 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
 	//=============================================================
 	// Compute bias power spectra
 	//=============================================================
-
+    
+    const int active_fields = 5; // Calculate all 5 fields
     const auto [nleft, nright] = FML::INTERPOLATION::get_extra_slices_needed_for_density_assignment(pofk_density_assignment_method);
 
-    // Function to subtract two grids a - b and store the result in a
+    // Function to subtract two (Fourier space) grids a - b and store the result in a
     auto subtract_grid = [](FML::GRID::FFTWGrid<NDIM> &a, FML::GRID::FFTWGrid<NDIM> &b) {
         const size_t ncell = (size_t)a.get_local_nx() * a.get_nmesh() * (a.get_nmesh() / 2 + 1);
         #ifdef USE_OMP
@@ -425,8 +426,6 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
         for (size_t c = 0; c < ncell; c++)
             a.set_fourier_from_index(c, a.get_fourier_from_index(c) - b.get_fourier_from_index(c));
     };
-
-    const int active_fields = 3; // Change this to 5 when you implement the last two
     
     // Store grids in a vector to avoid redundant FFTs
     std::vector<std::unique_ptr<FML::GRID::FFTWGrid<NDIM>>> grids;
@@ -445,7 +444,8 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
         FML::INTERPOLATION::deconvolve_window_function_fourier<NDIM>(
             current_grid, pofk_density_assignment_method);
 
-        // Subtract the baseline grid (index 0) from all bias fields
+        // get_mass() returns 1 + bias for i > 0.
+        // Subtract the unit-mass field to isolate the bias contribution.
         if (i > 0) {
             subtract_grid(current_grid, *grids[0]); 
         }
