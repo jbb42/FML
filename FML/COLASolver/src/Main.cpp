@@ -66,7 +66,7 @@ class Particle {
     static inline int active_bias_index = 0; // Choose which bias parameter to use
     static inline double bias_weight_scale[5] = {1.0, 1.0, 1.0, 1.0, 1.0};
 
-	double get_mass() const {
+    double get_mass() const {
         return (active_bias_index == 0) ? 1.0 : 1.0 + bias_weight_scale[active_bias_index] * bias_weights[active_bias_index];
     }
 

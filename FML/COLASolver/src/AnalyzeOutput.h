@@ -410,15 +410,16 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
                                                                pofk_interlacing);
     pofk_cb_binning.scale(simulation_boxsize);
 
-	//=============================================================
-	// Compute bias power spectra
-	//=============================================================
-    
-    const int active_fields = 5; // Calculate all 5 fields
-    const auto [nleft, nright] = FML::INTERPOLATION::get_extra_slices_needed_for_density_assignment(pofk_density_assignment_method);
+    //=============================================================
+    // Compute bias power spectra
+    //=============================================================
 
-    // Function to subtract two (Fourier space) grids a - b and store the result in a
-    auto subtract_grid = [](FML::GRID::FFTWGrid<NDIM> &a, FML::GRID::FFTWGrid<NDIM> &b) {
+    const int active_fields = 5; // Matter + the 4 bias fields
+    const auto [nleft, nright] =
+        FML::INTERPOLATION::get_extra_slices_needed_for_density_assignment(pofk_density_assignment_method);
+
+    // Subtract two Fourier space grids a - b and store the result in a
+    auto subtract_grid = [](FML::GRID::FFTWGrid<NDIM> & a, const FML::GRID::FFTWGrid<NDIM> & b) {
         const size_t ncell = (size_t)a.get_local_nx() * a.get_nmesh() * (a.get_nmesh() / 2 + 1);
         #ifdef USE_OMP
         #pragma omp parallel for
@@ -426,12 +427,8 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
         for (size_t c = 0; c < ncell; c++)
             a.set_fourier_from_index(c, a.get_fourier_from_index(c) - b.get_fourier_from_index(c));
     };
-    
-    // Store grids in a vector to avoid redundant FFTs
-    std::vector<std::unique_ptr<FML::GRID::FFTWGrid<NDIM>>> grids;
-    grids.reserve(active_fields);
 
-    // The bias weights are stored at a = 1. Rescale them to the current redshift:
+    // 1. The bias weights are stored at a = 1. Rescale them to the current redshift:
     // delta_L and nabla^2 delta_L scale as D, delta_L^2 and s^2 as D^2
     const double D_ratio = grav->get_D_1LPT(1.0 / (1.0 + redshift)) / grav->get_D_1LPT(1.0);
     T::bias_weight_scale[1] = D_ratio;
@@ -439,40 +436,56 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
     T::bias_weight_scale[3] = D_ratio * D_ratio;
     T::bias_weight_scale[4] = D_ratio;
 
+    // 2. Deposit each field. Keep all grids so every auto/cross spectrum needs no extra FFTs
+    std::vector<FML::GRID::FFTWGrid<NDIM>> grids;
+    grids.reserve(active_fields);
     for (int i = 0; i < active_fields; i++) {
-        grids.push_back(std::make_unique<FML::GRID::FFTWGrid<NDIM>>(pofk_nmesh, nleft, nright));
-
+        grids.emplace_back(pofk_nmesh, nleft, nright);
         T::active_bias_index = i;
-        auto& current_grid = *grids[i];
 
-        FML::INTERPOLATION::particles_to_fourier_grid(
-            part.get_particles_ptr(), part.get_npart(), part.get_npart_total(),
-            current_grid, pofk_density_assignment_method, pofk_interlacing);
-            
-        FML::INTERPOLATION::deconvolve_window_function_fourier<NDIM>(
-            current_grid, pofk_density_assignment_method);
+        FML::INTERPOLATION::particles_to_fourier_grid(part.get_particles_ptr(),
+                                                      part.get_npart(),
+                                                      part.get_npart_total(),
+                                                      grids[i],
+                                                      pofk_density_assignment_method,
+                                                      pofk_interlacing);
+        FML::INTERPOLATION::deconvolve_window_function_fourier<NDIM>(grids[i], pofk_density_assignment_method);
 
-        // get_mass() returns 1 + bias for i > 0.
-        // Subtract the unit-mass field to isolate the bias contribution.
-        if (i > 0) {
-            subtract_grid(current_grid, *grids[0]); 
-        }
+        // get_mass() returns 1 + weight for i > 0. Subtract the unit-mass field to isolate the weighted field
+        if (i > 0)
+            subtract_grid(grids[i], grids[0]);
     }
-    T::active_bias_index = 0; // Reset state
+    T::active_bias_index = 0;
 
-    // 3. Compute Auto and Cross Spectra purely from pre-calculated grids
+    // 3. Poisson shot noise of each pair, P_ij^SN = V/N <u_i u_j> with u_0 = 1 and u_i = scaled weight i
+    std::vector<double> shotnoise(active_fields * active_fields, 0.0);
+    {
+        const auto * p = part.get_particles_ptr();
+        for (size_t ip = 0; ip < part.get_npart(); ip++) {
+            double u[active_fields];
+            u[0] = 1.0;
+            for (int i = 1; i < active_fields; i++)
+                u[i] = T::bias_weight_scale[i] * p[ip].bias_weights[i];
+            for (int i = 0; i < active_fields; i++)
+                for (int j = i; j < active_fields; j++)
+                    shotnoise[i * active_fields + j] += u[i] * u[j];
+        }
+        FML::SumArrayOverTasks(shotnoise.data(), int(shotnoise.size()));
+        const double volume_per_particle = std::pow(simulation_boxsize, NDIM) / double(part.get_npart_total());
+        for (auto & sn : shotnoise)
+            sn *= volume_per_particle / double(part.get_npart_total());
+    }
+
+    // 4. Compute auto and cross spectra from the deposited grids
     for (int i = 0; i < active_fields; i++) {
         for (int j = i; j < active_fields; j++) {
-            
             FML::CORRELATIONFUNCTIONS::PowerSpectrumBinning<NDIM> p_ij(pofk_nmesh / 2);
             p_ij.subtract_shotnoise = false;
 
-            if (i == j) {
-                FML::CORRELATIONFUNCTIONS::bin_up_power_spectrum(*grids[i], p_ij);
-            } else {
-                FML::CORRELATIONFUNCTIONS::bin_up_cross_power_spectrum(*grids[i], *grids[j], p_ij);
-            }
-
+            if (i == j)
+                FML::CORRELATIONFUNCTIONS::bin_up_power_spectrum(grids[i], p_ij);
+            else
+                FML::CORRELATIONFUNCTIONS::bin_up_cross_power_spectrum(grids[i], grids[j], p_ij);
             p_ij.scale(simulation_boxsize);
 
             if (FML::ThisTask == 0) {
@@ -484,7 +497,35 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
             }
         }
     }
-    
+
+    // 5. Write a reference file describing the pofk_ij.txt files
+    if (FML::ThisTask == 0) {
+        std::ofstream fp(snapshot_folder + "/pofk_bias_info.txt");
+        fp << std::setprecision(10);
+        fp << "# Reference for the files pofk_ij.txt in this folder\n";
+        fp << "# Columns: k (h/Mpc)   P_ij(k) (Mpc/h)^3\n";
+        fp << "# Fields: 0 = matter, 1 = delta_L, 2 = delta_L^2 - <delta_L^2>, 3 = s^2 - <s^2>,\n";
+        fp << "#         4 = nabla^2 delta_L (in (Mpc/h)^2). Weights are linear fields at q (mean subtracted)\n";
+        fp << "#         advected with the particles and scaled to this redshift with D(z)/D(0)\n";
+        fp << "# Window function deconvolved, shot noise NOT subtracted (Poisson estimate below)\n";
+        fp << "simulation_name                " << sim.simulation_name << "\n";
+        fp << "redshift                       " << redshift << "\n";
+        fp << "growth_ratio_D(z)/D(0)         " << D_ratio << "\n";
+        fp << "simulation_boxsize             " << simulation_boxsize << "\n";
+        fp << "npart_total                    " << part.get_npart_total() << "\n";
+        fp << "ic_initial_redshift            " << sim.ic_initial_redshift << "\n";
+        fp << "ic_random_seed                 " << sim.ic_random_seed << "\n";
+        fp << "ic_fix_amplitude               " << sim.ic_fix_amplitude << "\n";
+        fp << "ic_reverse_phases              " << sim.ic_reverse_phases << "\n";
+        fp << "pofk_nmesh                     " << pofk_nmesh << "\n";
+        fp << "pofk_density_assignment_method " << pofk_density_assignment_method << "\n";
+        fp << "pofk_interlacing               " << pofk_interlacing << "\n";
+        fp << "# Poisson shot noise P_ij^SN = V/N <u_i u_j> in (Mpc/h)^3\n";
+        for (int i = 0; i < active_fields; i++)
+            for (int j = i; j < active_fields; j++)
+                fp << "shotnoise_" << i << j << "                   " << shotnoise[i * active_fields + j] << "\n";
+    }
+
     /* ...or do it this way for which we can compute the total power-spectrum by adding on the neutrinos
     const auto nleftright =
     FML::INTERPOLATION::get_extra_slices_needed_for_density_assignment(pofk_density_assignment_method); const int nleft
