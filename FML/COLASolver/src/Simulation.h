@@ -1238,23 +1238,25 @@ void NBodySimulation<NDIM, T>::init() {
             "CIC"
         );
 
-        // 4. Compute tidal tensor invariant s^2
+        // 4. Compute tidal tensor invariant s^2 and Laplacian of delta
         std::vector<double> s2_vals(local_npart, 0.0);
+        std::vector<double> nabla2_vals(local_npart);
         std::vector<std::pair<int, int>> tidal_comps = { {0,0}, {1,1}, {2,2}, {0,1}, {0,2}, {1,2} };
-
+        
         const int nmesh = delta_L_fourier.get_nmesh();
         const int nmesh_half = nmesh / 2 + 1;
         double barL = 2.0 * M_PI / simulation_boxsize;
 
-        FML::GRID::FFTWGrid<NDIM> temp_grid(nmesh, delta_L_fourier.get_n_extra_slices_left(), delta_L_fourier.get_n_extra_slices_right());
+        FML::GRID::FFTWGrid<NDIM> tidal_grid(nmesh, delta_L_fourier.get_n_extra_slices_left(), delta_L_fourier.get_n_extra_slices_right());
+        FML::GRID::FFTWGrid<NDIM> laplacian_grid(nmesh, delta_L_fourier.get_n_extra_slices_left(), delta_L_fourier.get_n_extra_slices_right());
 
         for (auto [i, j]: tidal_comps) {
             #ifdef USE_OMP
             #pragma omp parallel for collapse(2)
             #endif
-            for (size_t ix = 0; ix < (size_t)temp_grid.get_local_nx(); ix++) {
+            for (size_t ix = 0; ix < (size_t)tidal_grid.get_local_nx(); ix++) {
                 for (int iy = 0; iy < nmesh; iy++) {
-                    int ix_global = ix + temp_grid.get_local_x_start();
+                    int ix_global = ix + tidal_grid.get_local_x_start();
                     double k[3] = {
                         (ix_global > nmesh / 2 ? ix_global - nmesh : ix_global) * barL,
                         (iy > nmesh / 2 ? iy - nmesh : iy) * barL, 0.0
@@ -1265,21 +1267,26 @@ void NBodySimulation<NDIM, T>::init() {
                         double k2 = k[0]*k[0] + k[1]*k[1] + k[2]*k[2];
                         size_t c = (ix * nmesh + iy) * nmesh_half + iz;
 
+                        auto val = delta_L_fourier.get_fourier_from_index(c);
+
+                        // Tidal tensor
                         if (k2 > 0.0) {
-                            auto val = delta_L_fourier.get_fourier_from_index(c);
                             double projector = (k[i] * k[j] / k2) - (i == j ? 1.0 / 3.0 : 0.0);
-                            temp_grid.set_fourier_from_index(c, val * projector);
+                            tidal_grid.set_fourier_from_index(c, val * projector);
                         } else {
-                            temp_grid.set_fourier_from_index(c, 0.0);
+                            tidal_grid.set_fourier_from_index(c, 0.0);
                         }
+                        
+                        // Laplacian
+                        laplacian_grid.set_fourier_from_index(c, val * (-k2));
                     }
                 }
             }
 
-            temp_grid.fftw_c2r();
+            tidal_grid.fftw_c2r();
             std::vector<double> comp_vals(local_npart);
             FML::INTERPOLATION::interpolate_grid_to_particle_positions(
-                temp_grid,
+                tidal_grid,
                 particle_array,
                 local_npart,
                 comp_vals,
@@ -1295,44 +1302,18 @@ void NBodySimulation<NDIM, T>::init() {
             }
         }
 
-        // 5. Compute Laplacian of delta
-        std::vector<double> nabla2_vals(local_npart);
-        {
-            // Recycle temp_grid to safely calculate the Laplacian without sharing pointers
-            #ifdef USE_OMP
-            #pragma omp parallel for collapse(2)
-            #endif
-            for (size_t ix = 0; ix < (size_t)temp_grid.get_local_nx(); ix++) {
-                for (int iy = 0; iy < nmesh; iy++) {
-                    int ix_global = ix + temp_grid.get_local_x_start();
-                    double k[3] = {
-                        (ix_global > nmesh / 2 ? ix_global - nmesh : ix_global) * barL,
-                        (iy > nmesh / 2 ? iy - nmesh : iy) * barL, 0.0
-                    };
 
-                    for (int iz = 0; iz < nmesh_half; iz++) {
-                        k[2] = iz * barL;
-                        double k2 = k[0]*k[0] + k[1]*k[1] + k[2]*k[2];
-                        size_t c = (ix * nmesh + iy) * nmesh_half + iz;
+        laplacian_grid.fftw_c2r();
+        
+        FML::INTERPOLATION::interpolate_grid_to_particle_positions(
+            laplacian_grid,
+            particle_array,
+            local_npart,
+            nabla2_vals,
+            "CIC"
+        );
 
-                        auto val = delta_L_fourier.get_fourier_from_index(c); // Read from pristine base
-                        temp_grid.set_fourier_from_index(c, val * (-k2));     // Multiply by -k^2
-                    }
-                }
-            }
-
-            temp_grid.fftw_c2r();
-            
-            FML::INTERPOLATION::interpolate_grid_to_particle_positions(
-                temp_grid,
-                particle_array,
-                local_npart,
-                nabla2_vals,
-                "CIC"
-            );
-        }
-
-        // 6. Compute sigma^2 and s^2 robustly from the interpolated particle values
+        // 5. Compute sigma^2 and s^2 robustly from the interpolated particle values
         double local_vals[2] = {0.0, 0.0};
 
         #ifdef USE_OMP
@@ -1351,7 +1332,7 @@ void NBodySimulation<NDIM, T>::init() {
         double s2_mean     = global_vals[1] / total_parts;
 
 
-        // 7. Assign the bias weights
+        // 6. Assign the bias weights
         #ifdef USE_OMP
         #pragma omp parallel for
         #endif
@@ -1363,7 +1344,7 @@ void NBodySimulation<NDIM, T>::init() {
             particle_array[p].bias_weights[4] = static_cast<float>(nabla2_vals[p]);
         }
 
-        // 8. Swap back to Eulerian coordinates and restore original MPI domains
+        // 7. Swap back to Eulerian coordinates and restore original MPI domains
         for (size_t p = 0; p < local_npart; p++) {
             for(int idim = 0; idim < NDIM; idim++) std::swap(particle_array[p].pos[idim], particle_array[p].q[idim]);
         }

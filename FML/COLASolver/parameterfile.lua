@@ -33,7 +33,7 @@ simulation_use_scaledependent_cola = false
 -- i.e. we do not compute any forces
 -- NB: for normal simulations make sure this is set to false
 if simulation_use_cola then
-  simulation_enforce_LPT_trajectories = false
+  simulation_enforce_LPT_trajectories = false--true
 
   -- The LPT order of COLA: 1 = 1LPT, 2 = 2LPT, 3 = 3LPT. Has to be <= ic_LPT_order
   -- If < 1 then we turn off COLA
@@ -230,7 +230,7 @@ end
 -- Particles
 ------------------------------------------------------------
 -- Number of CDM+b particles per dimension
-particle_Npart_1D = 256
+particle_Npart_1D = 1024
 -- Factor of how many more particles to allocate space
 particle_allocation_factor = 1.25
 
@@ -240,7 +240,7 @@ particle_allocation_factor = 1.25
 -- List of output redshifts
 output_redshifts = {0.0}
 -- Output particles?
-output_particles = true
+output_particles = false
 -- Fileformat: GADGET, FML
 output_fileformat = "GADGET"
 -- Output folder
@@ -251,7 +251,7 @@ output_folder = "output"
 ------------------------------------------------------------
 -- Number of steps between the outputs (in output_redshifts). 
 -- If only one number in the list then its the total number of steps 
-timestep_nsteps = {10}
+timestep_nsteps = {40}
 -- The time-stepping method: Quinn, Tassev
 timestep_method = "Quinn"
 -- For Tassev: the nLPT parameter
@@ -346,7 +346,7 @@ end
 -- Force calculation
 ------------------------------------------------------------
 -- Grid to use for computing PM forces
-force_nmesh = 128
+force_nmesh = 1024--1344
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS
 force_density_assignment_method = "CIC"
 -- The kernel to use for D^2 when solving the Poisson equation
@@ -438,7 +438,7 @@ fof_buffer_length_mpch = 3.0
 -- Compute power-spectrum when we output
 pofk = true
 -- Gridsize to use for this
-pofk_nmesh = 128
+pofk_nmesh = 512
 -- Use interlaced grids for alias reduction?
 pofk_interlacing = true
 -- Subtract shotnoise?
