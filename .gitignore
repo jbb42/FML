@@ -1,0 +1,19 @@
+# Build artifacts
+*.o
+FML/COLASolver/nbody
+FML/ComputePowerSpectra/example/powspec
+
+# Editor backups
+*~
+
+# COLASolver: generated simulation output, spectra and plots
+FML/COLASolver/output*/
+FML/COLASolver/run100/
+FML/COLASolver/spectra*/
+FML/COLASolver/saved_spectra*/*
+!FML/COLASolver/saved_spectra*/README.md
+FML/COLASolver/plots/
+FML/COLASolver/error_plots*/
+FML/COLASolver/*.pdf
+FML/COLASolver/run_log.txt
+FML/COLASolver/temp_param_*.lua
