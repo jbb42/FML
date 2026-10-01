@@ -230,7 +230,7 @@ end
 -- Particles
 ------------------------------------------------------------
 -- Number of CDM+b particles per dimension
-particle_Npart_1D = 1024
+particle_Npart_1D = 512
 -- Factor of how many more particles to allocate space
 particle_allocation_factor = 1.25
 
@@ -251,7 +251,7 @@ output_folder = "output"
 ------------------------------------------------------------
 -- Number of steps between the outputs (in output_redshifts). 
 -- If only one number in the list then its the total number of steps 
-timestep_nsteps = {40}
+timestep_nsteps = {10}
 -- The time-stepping method: Quinn, Tassev
 timestep_method = "Quinn"
 -- For Tassev: the nLPT parameter
@@ -346,7 +346,7 @@ end
 -- Force calculation
 ------------------------------------------------------------
 -- Grid to use for computing PM forces
-force_nmesh = 1024--1344
+force_nmesh = 512--1344
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS
 force_density_assignment_method = "CIC"
 -- The kernel to use for D^2 when solving the Poisson equation

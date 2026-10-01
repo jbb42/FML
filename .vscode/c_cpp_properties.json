@@ -1,0 +1,30 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/**",
+                "/mn/stornext/u3/jonasbbe/local/include",
+                "/mn/stornext/u3/hansw/local/include",
+                "/mn/stornext/astro/local/opt/intel/oneapi/mpi/2021.18/include"
+            ],
+            "defines": [
+                "NDIM_SPACE=3",
+                "USE_MPI",
+                "USE_OMP",
+                "USE_FFTW",
+                "USE_FFTW_THREADS",
+                "MEMORY_LOGGING",
+                "USE_GSL",
+                "USE_LUA"
+            ],
+            "compilerArgs": ["-fopenmp"]
+        }
+    ],
+    "version": 4
+}

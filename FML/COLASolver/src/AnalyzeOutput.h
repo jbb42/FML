@@ -431,6 +431,14 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
     std::vector<std::unique_ptr<FML::GRID::FFTWGrid<NDIM>>> grids;
     grids.reserve(active_fields);
 
+    // The bias weights are stored at a = 1. Rescale them to the current redshift:
+    // delta_L and nabla^2 delta_L scale as D, delta_L^2 and s^2 as D^2
+    const double D_ratio = grav->get_D_1LPT(1.0 / (1.0 + redshift)) / grav->get_D_1LPT(1.0);
+    T::bias_weight_scale[1] = D_ratio;
+    T::bias_weight_scale[2] = D_ratio * D_ratio;
+    T::bias_weight_scale[3] = D_ratio * D_ratio;
+    T::bias_weight_scale[4] = D_ratio;
+
     for (int i = 0; i < active_fields; i++) {
         grids.push_back(std::make_unique<FML::GRID::FFTWGrid<NDIM>>(pofk_nmesh, nleft, nright));
 

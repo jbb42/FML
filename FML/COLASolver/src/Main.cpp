@@ -60,11 +60,14 @@ class Particle {
     //=============================================================
     // Optional things below:
     //=============================================================
+    // Lagrangian bias weights {unused, delta_L, delta_L^2, s^2, nabla^2 delta_L}, each with its particle mean
+    // subtracted, stored at a = 1 and rescaled to the output time by bias_weight_scale
     double bias_weights[5];
     static inline int active_bias_index = 0; // Choose which bias parameter to use
+    static inline double bias_weight_scale[5] = {1.0, 1.0, 1.0, 1.0, 1.0};
 
 	double get_mass() const {
-        return (active_bias_index == 0) ? 1.0 : static_cast<double>(bias_weights[active_bias_index]) + 1.0;
+        return (active_bias_index == 0) ? 1.0 : 1.0 + bias_weight_scale[active_bias_index] * bias_weights[active_bias_index];
     }
 
     //=============================================================
