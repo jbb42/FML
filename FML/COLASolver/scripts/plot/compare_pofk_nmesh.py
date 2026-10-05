@@ -7,19 +7,10 @@ import matplotlib.pyplot as plt
 # -------------------------------------------------------------
 # Directory Configurations
 # -------------------------------------------------------------
-DIR_V4 = "saved_spectra/f1024_n1024_s40_v4"
-DIR_NEW = "output/snapshot_TestSim_z0.000"
-
-# Auto-adjust if running from inside output/ or snapshot_TestSim_z0.000/
-if not os.path.exists(DIR_V4):
-    if os.path.exists(os.path.join("..", DIR_V4)):
-        DIR_V4 = os.path.join("..", DIR_V4)
-    elif os.path.exists(os.path.join("../..", DIR_V4)):
-        DIR_V4 = os.path.join("../..", DIR_V4)
-
-if not os.path.exists(DIR_NEW):
-    if os.path.exists("."):
-        DIR_NEW = "."
+# COLASolver root (this script lives in COLASolver/scripts/plot)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DIR_V4 = os.path.join(ROOT, "results", "convergence_runs_v1", "f1024_n1024_s40_v4")
+DIR_NEW = os.path.join(ROOT, "output", "snapshot_TestSim_z0.000")
 
 FIELD_NAMES = {
     0: r"\mathrm{Matter}",

@@ -98,6 +98,13 @@ class NBodySimulation {
     FFTWGrid<NDIM> phi_3LPTb_ini_fourier;
 
     //=============================================================================
+    /// The initial density field delta(k, zini), kept for the whole run so the
+    /// Lagrangian bias weights can be rebuilt at every output with the exact growth
+    /// D(k, a) of each mode (see compute_bias_weights)
+    //=============================================================================
+    FFTWGrid<NDIM> bias_delta_ini_fourier;
+
+    //=============================================================================
     /// The lightcone construction
     //=============================================================================
     std::shared_ptr<Lightcone<NDIM, T>> lightcone;
@@ -254,8 +261,9 @@ class NBodySimulation {
     void read_ic();
     void read_phases(FFTWGrid<NDIM> & delta_fourier);
 
-    /// Compute the Lagrangian bias weights {delta_L, delta_L^2, s^2, nabla^2 delta_L} at the particles' q
-    void compute_bias_weights(const FFTWGrid<NDIM> & delta_ini_fourier);
+    /// Compute the Lagrangian bias weights {delta_L, delta_L^2, s^2, nabla^2 delta_L} at the particles' q,
+    /// from the linear field at scale factor a_out
+    void compute_bias_weights(double a_out);
 
     /// Run simulation
     void run();
@@ -1198,8 +1206,9 @@ void NBodySimulation<NDIM, T>::init() {
                                                     ic_initial_redshift,
                                                     velocity_norms);
 
-        // Compute the Lagrangian bias weights of the particles from the linear density field
-        compute_bias_weights(delta_ini_fourier);
+        // Keep the initial density field: the Lagrangian bias weights are built from it at every output
+        bias_delta_ini_fourier = delta_ini_fourier;
+        bias_delta_ini_fourier.add_memory_label("bias_delta_ini_fourier(k)");
 
         // Store potential in the class
         if (simulation_use_cola and simulation_use_scaledependent_cola) {
@@ -1264,9 +1273,12 @@ void NBodySimulation<NDIM, T>::init() {
 }
 
 template <int NDIM, class T>
-void NBodySimulation<NDIM, T>::compute_bias_weights(const FFTWGrid<NDIM> & delta_ini_fourier) {
-    // The weights are computed from the linear field at a = 1 and are rescaled to
-    // each output time via T::bias_weight_scale (see compute_power_spectrum)
+void NBodySimulation<NDIM, T>::compute_bias_weights(double a_out) {
+    // The weights are built from the linear field at the output time, delta_L(k, a_out) =
+    // D(k, a_out) / D(k, a_ini) * delta_ini(k), so they are exact also for scale-dependent growth (f(R), neutrinos)
+    const auto & delta_ini_fourier = bias_delta_ini_fourier;
+    if (delta_ini_fourier.get_nmesh() == 0)
+        return; // No initial field (particles read from file): the weights stay zero
 
     // 1. Route particles to the MPI domain that owns their Lagrangian 'q' coordinate
     auto * particle_array = part.get_particles_ptr();
@@ -1279,7 +1291,7 @@ void NBodySimulation<NDIM, T>::compute_bias_weights(const FFTWGrid<NDIM> & delta
     particle_array = part.get_particles_ptr();
     const size_t local_npart = part.get_npart();
 
-    // 2. Linear growth from the IC redshift to a = 1, tabulated in n^2 = |k / kfund|^2 if scale-dependent
+    // 2. Linear growth from the IC redshift to a_out, tabulated in n^2 = |k / kfund|^2 if scale-dependent
     const int nmesh = delta_ini_fourier.get_nmesh();
     const int nmesh_half = nmesh / 2 + 1;
     const int local_nx = delta_ini_fourier.get_local_nx();
@@ -1287,7 +1299,7 @@ void NBodySimulation<NDIM, T>::compute_bias_weights(const FFTWGrid<NDIM> & delta
     const double kfund = 2.0 * M_PI / simulation_boxsize;
 
     const double a_ini = 1.0 / (1.0 + ic_initial_redshift);
-    const double growth_ini_to_today = grav->get_D_1LPT(1.0) / grav->get_D_1LPT(a_ini);
+    const double growth_ini_to_out = grav->get_D_1LPT(a_out) / grav->get_D_1LPT(a_ini);
     std::vector<double> growth_of_n2;
     if (grav->is_growth_scaledependent()) {
         growth_of_n2.resize(3 * (nmesh / 2) * (nmesh / 2) + 1);
@@ -1296,7 +1308,7 @@ void NBodySimulation<NDIM, T>::compute_bias_weights(const FFTWGrid<NDIM> & delta
         #endif
         for (size_t n2 = 0; n2 < growth_of_n2.size(); n2++) {
             const double koverH0 = kfund * std::sqrt(double(n2)) / grav->H0_hmpc;
-            growth_of_n2[n2] = grav->get_D_1LPT(1.0, koverH0) / grav->get_D_1LPT(a_ini, koverH0);
+            growth_of_n2[n2] = grav->get_D_1LPT(a_out, koverH0) / grav->get_D_1LPT(a_ini, koverH0);
         }
     }
 
@@ -1316,7 +1328,7 @@ void NBodySimulation<NDIM, T>::compute_bias_weights(const FFTWGrid<NDIM> & delta
                     const int n2 = nx * nx + ny * ny + iz * iz;
                     const double k[3] = {nx * kfund, ny * kfund, iz * kfund};
                     const double k2 = n2 * kfund * kfund;
-                    const double growth = growth_of_n2.empty() ? growth_ini_to_today : growth_of_n2[n2];
+                    const double growth = growth_of_n2.empty() ? growth_ini_to_out : growth_of_n2[n2];
                     const size_t c = ((size_t)ix * nmesh + iy) * nmesh_half + iz;
                     scratch.set_fourier_from_index(c, delta_ini_fourier.get_fourier_from_index(c) *
                                                           FML::GRID::FloatType(growth * kernel(k, k2)));
@@ -1821,6 +1833,11 @@ void NBodySimulation<NDIM, T>::analyze_and_output(int ioutput, double redshift) 
     // Power-spectrum
     //=============================================================
     if (pofk) {
+        // Lagrangian bias weights from the linear field at this output time (used by the bias spectra)
+        timer.StartTiming("BiasWeights");
+        compute_bias_weights(1.0 / (1.0 + redshift));
+        timer.EndTiming("BiasWeights");
+
         timer.StartTiming("Power-spectrum");
         compute_power_spectrum(*this, redshift, snapshot_folder);
         timer.EndTiming("Power-spectrum");

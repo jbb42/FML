@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Run from the COLASolver root (parameterfile.lua, ./nbody and input/ use relative paths)
+cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
+
 PARAM_FILE="parameterfile.lua"
 BASE_SEED=12300
 ENSEMBLE_SIZE=100
@@ -53,8 +56,8 @@ for i in $(seq 1 $ENSEMBLE_SIZE); do
     fi
     
     # Safely create the seed directory and move the data
-    mkdir -p output_seed_${i}
-    mv output/snapshot_TestSim_z*/*.txt output_seed_${i}/
+    mkdir -p results/ensemble_100seeds/output_seed_${i}
+    mv output/snapshot_TestSim_z*/*.txt results/ensemble_100seeds/output_seed_${i}/
     
     # Clean up the empty snapshot directory for the next run
     rm -rf output/snapshot_TestSim_z*

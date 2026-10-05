@@ -428,15 +428,8 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
             a.set_fourier_from_index(c, a.get_fourier_from_index(c) - b.get_fourier_from_index(c));
     };
 
-    // 1. The bias weights are stored at a = 1. Rescale them to the current redshift:
-    // delta_L and nabla^2 delta_L scale as D, delta_L^2 and s^2 as D^2
-    const double D_ratio = grav->get_D_1LPT(1.0 / (1.0 + redshift)) / grav->get_D_1LPT(1.0);
-    T::bias_weight_scale[1] = D_ratio;
-    T::bias_weight_scale[2] = D_ratio * D_ratio;
-    T::bias_weight_scale[3] = D_ratio * D_ratio;
-    T::bias_weight_scale[4] = D_ratio;
-
-    // 2. Deposit each field. Keep all grids so every auto/cross spectrum needs no extra FFTs
+    // 1. The bias weights were built for this output time just before (compute_bias_weights).
+    // Deposit each field. Keep all grids so every auto/cross spectrum needs no extra FFTs
     std::vector<FML::GRID::FFTWGrid<NDIM>> grids;
     grids.reserve(active_fields);
     for (int i = 0; i < active_fields; i++) {
@@ -457,7 +450,7 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
     }
     T::active_bias_index = 0;
 
-    // 3. Poisson shot noise of each pair, P_ij^SN = V/N <u_i u_j> with u_0 = 1 and u_i = scaled weight i
+    // 2. Poisson shot noise of each pair, P_ij^SN = V/N <u_i u_j> with u_0 = 1 and u_i = weight i
     std::vector<double> shotnoise(active_fields * active_fields, 0.0);
     {
         const auto * p = part.get_particles_ptr();
@@ -465,7 +458,7 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
             double u[active_fields];
             u[0] = 1.0;
             for (int i = 1; i < active_fields; i++)
-                u[i] = T::bias_weight_scale[i] * p[ip].bias_weights[i];
+                u[i] = p[ip].bias_weights[i];
             for (int i = 0; i < active_fields; i++)
                 for (int j = i; j < active_fields; j++)
                     shotnoise[i * active_fields + j] += u[i] * u[j];
@@ -476,7 +469,7 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
             sn *= volume_per_particle / double(part.get_npart_total());
     }
 
-    // 4. Compute auto and cross spectra from the deposited grids
+    // 3. Compute auto and cross spectra from the deposited grids
     for (int i = 0; i < active_fields; i++) {
         for (int j = i; j < active_fields; j++) {
             FML::CORRELATIONFUNCTIONS::PowerSpectrumBinning<NDIM> p_ij(pofk_nmesh / 2);
@@ -498,7 +491,7 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
         }
     }
 
-    // 5. Write a reference file describing the pofk_ij.txt files
+    // 4. Write a reference file describing the pofk_ij.txt files
     if (FML::ThisTask == 0) {
         std::ofstream fp(snapshot_folder + "/pofk_bias_info.txt");
         fp << std::setprecision(10);
@@ -506,11 +499,10 @@ void compute_power_spectrum(NBodySimulation<NDIM, T> & sim, double redshift, std
         fp << "# Columns: k (h/Mpc)   P_ij(k) (Mpc/h)^3\n";
         fp << "# Fields: 0 = matter, 1 = delta_L, 2 = delta_L^2 - <delta_L^2>, 3 = s^2 - <s^2>,\n";
         fp << "#         4 = nabla^2 delta_L (in (Mpc/h)^2). Weights are linear fields at q (mean subtracted)\n";
-        fp << "#         advected with the particles and scaled to this redshift with D(z)/D(0)\n";
+        fp << "#         advected with the particles, built from the linear field at this redshift (D(k,z) per mode)\n";
         fp << "# Window function deconvolved, shot noise NOT subtracted (Poisson estimate below)\n";
         fp << "simulation_name                " << sim.simulation_name << "\n";
         fp << "redshift                       " << redshift << "\n";
-        fp << "growth_ratio_D(z)/D(0)         " << D_ratio << "\n";
         fp << "simulation_boxsize             " << simulation_boxsize << "\n";
         fp << "npart_total                    " << part.get_npart_total() << "\n";
         fp << "ic_initial_redshift            " << sim.ic_initial_redshift << "\n";

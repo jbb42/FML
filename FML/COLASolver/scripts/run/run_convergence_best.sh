@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Define absolute base path
-BASE_DIR="/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/COLASolver"
-SPECTRA_DIR="${BASE_DIR}/saved_spectra2" # Central directory to save spectra
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # COLASolver root
+SPECTRA_DIR="${BASE_DIR}/results/convergence_runs_v2_fixedseeds" # Central directory to save spectra
 
 # Create output directory
 mkdir -p "$SPECTRA_DIR"

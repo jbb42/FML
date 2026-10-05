@@ -4,8 +4,10 @@ import glob
 import os
 
 # Define directories
-DATA_DIR = "saved_spectra2"
-OUTPUT_DIR = "error_plots2"
+# COLASolver root (this script lives in COLASolver/scripts/plot)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR = os.path.join(ROOT, "results", "convergence_runs_v2_fixedseeds")
+OUTPUT_DIR = os.path.join(ROOT, "figures", "convergence_errors")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ==========================================

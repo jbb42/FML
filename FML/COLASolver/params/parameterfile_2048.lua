@@ -244,7 +244,7 @@ output_particles = false
 -- Fileformat: GADGET, FML
 output_fileformat = "GADGET"
 -- Output folder
-output_folder = "/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/COLASolver/output_expertimental"
+output_folder = "/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/COLASolver/results/reference_2048"
 
 ------------------------------------------------------------
 -- Time-stepping

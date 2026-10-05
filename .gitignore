@@ -6,14 +6,12 @@ FML/ComputePowerSpectra/example/powspec
 # Editor backups
 *~
 
-# COLASolver: generated simulation output, spectra and plots
+# COLASolver: generated simulation output, results, figures and logs
 FML/COLASolver/output*/
-FML/COLASolver/run100/
-FML/COLASolver/spectra*/
-FML/COLASolver/saved_spectra*/*
-!FML/COLASolver/saved_spectra*/README.md
-FML/COLASolver/plots/
-FML/COLASolver/error_plots*/
+FML/COLASolver/results/*/*
+!FML/COLASolver/results/*/README.md
+FML/COLASolver/figures/
+FML/COLASolver/logs/
 FML/COLASolver/*.pdf
-FML/COLASolver/run_log.txt
 FML/COLASolver/temp_param_*.lua
+FML/COLASolver/output/

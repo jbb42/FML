@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Define absolute base path to avoid relative path confusion
-BASE_DIR="/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/COLASolver"
-PLOTS_DIR="${BASE_DIR}/plots"
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # COLASolver root
+PLOTS_DIR="${BASE_DIR}/figures/resolution_scan"
 
 # Create a central directory for all plots
 mkdir -p $PLOTS_DIR
