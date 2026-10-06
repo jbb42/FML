@@ -17,3 +17,6 @@ FML/LagrangianBias/figures/
 FML/LagrangianBias/logs/
 FML/LagrangianBias/*.pdf
 FML/LagrangianBias/temp_param_*.lua
+
+# Python bytecode
+__pycache__/
