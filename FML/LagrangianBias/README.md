@@ -34,17 +34,16 @@ page per parameter (mean over seeds and phases, with a 1 sigma band), followed b
 - `seeds` (default: the one in `parameterfile.lua`), `phases=(False,)` to skip the reversed phases, `ntasks` (default 64).
 - Everything else comes from `parameterfile.lua`: 1024 Mpc/h, 1024^3 particles and force mesh, 30 time steps, ICs at
   z = 20, output at z = 0, GR. Change the defaults there, or per scan with `fixed`.
-- Scans run the gravity model of `parameterfile.lua` (GR). To compare with f(R), scan `gravity_model` and give all
-  runs the same initial conditions (the input LCDM P(k) is then scaled back with GR growth for every model, as in
-  `run_gr_vs_fofr.py` and `run_weekend.py`); the ratio pages are then the boost f(R)/GR:
-  `scan("fofr", one_at_a_time={"gravity_model": ["f(R)"]}, fixed={"ic_use_gravity_model_GR": True})`, or for every
-  cosmology of a scan `vary={"cosmology_OmegaCDM": [...], "gravity_model": ["GR", "f(R)"]}`.
+- `gravity=["F5"]` (or `["F4", "F5", "F6"]`) also runs every point in these f(R) models and in GR, all from the same
+  initial conditions (`ic_use_gravity_model_GR = true`), and adds pages with the boosts f(R)/GR. Without it, scans run
+  the gravity model of `parameterfile.lua` (GR).
 - Add values or seeds later and rerun: only the new runs are done.
 - `--dry-run` only writes the parameter files; `--plot-only` only remakes the figure (also while runs are going).
 - Long scans: `nohup python3 scripts/scan_cosmology.py > scan_cosmology.log 2>&1 &`, and follow the running
   simulation with `tail -F results/scans/cosmology/current_log.txt`.
 
-Runs go to `results/scans/<name>/<values>_seed<seed>_<phase>/`. Changing `cosmology_*` parameters also changes the
+Runs go to `results/scans/<name>/<values>[_<gravity>]_seed<seed>_<phase>/`, where `<values>` are the parameters that
+differ from the fiducial, without the `cosmology_` prefix (e.g. `w0-0.6_F5_seed1001_normal`), or `fiducial`. Changing `cosmology_*` parameters also changes the
 initial power spectrum, so a new linear P(k) is computed for each cosmology by running CLASS (`scripts/input_power.py`;
 set the executable there or with the environment variable `CLASS`). Each Lua parameter sets one CLASS parameter
 (`LUA_TO_CLASS`: `cosmology_h` -> `h`, `cosmology_Omegab` -> `Omega_b`, ...), and `cosmology_Neffective` and

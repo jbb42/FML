@@ -37,11 +37,8 @@ def neutrinos(Neffective, OmegaMNu):
 
 def write_input_power(parameters, path, kmax):
     """Write the linear CDM+baryon P(k) at ic_input_redshift for the cosmology in parameters (the rest from
-    parameterfile.lua) to path, as columns k (h/Mpc) and P(k) (Mpc/h)^3, up to at least kmax (h/Mpc). Nothing is done if
-    path already goes that far. The CLASS input is kept next to it, in <path>_class.ini."""
-    if os.path.exists(path) and np.loadtxt(path)[-1, 0] >= kmax:
-        return
-
+    parameterfile.lua) to path, as columns k (h/Mpc) and P(k) (Mpc/h)^3, up to at least kmax (h/Mpc). The CLASS input is kept
+    next to it, in <path>_class.ini, and nothing is done if that is unchanged."""
     def value(name):
         return parameters.get(name, base_parameter(name))
 
@@ -57,10 +54,13 @@ def write_input_power(parameters, path, kmax):
     if model == "w0waCDM":
         class_parameters["Omega_Lambda"] = 0  # The fluid then fills the rest of the energy budget
     class_parameters.update(neutrinos(float(value("cosmology_Neffective")), float(value("cosmology_OmegaMNu"))))
+    ini = "output = mPk\n" + f"P_k_max_h/Mpc = {max(100.0, 1.1 * kmax)}\nk_per_decade_for_pk = 32\n"
+    ini += "".join(f"{name} = {v}\n" for name, v in class_parameters.items())
+    ini_file = path.removesuffix(".txt") + "_class.ini"
+    if os.path.exists(path) and os.path.exists(ini_file) and open(ini_file).read() == ini:
+        return  # Already computed with exactly this CLASS input
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:  # CLASS only accepts short output paths
-        ini = "output = mPk\n" + f"P_k_max_h/Mpc = {max(100.0, 1.1 * kmax)}\nk_per_decade_for_pk = 32\n"
-        ini += "".join(f"{name} = {v}\n" for name, v in class_parameters.items())
         with open(os.path.join(tmp, "input.ini"), "w") as f:
             f.write(ini + f"root = {tmp}/\n")
         result = subprocess.run([CLASS, os.path.join(tmp, "input.ini")], capture_output=True, text=True)
@@ -69,6 +69,6 @@ def write_input_power(parameters, path, kmax):
         massive_neutrinos = float(value("cosmology_OmegaMNu")) > 0
         k, P = np.loadtxt(os.path.join(tmp, "00_pk_cb.dat" if massive_neutrinos else "00_pk.dat"), unpack=True)  # CDM + baryons
     np.savetxt(path, np.column_stack([k, P]), header="k (h/Mpc)   P(k) (Mpc/h)^3, linear CDM+baryon from CLASS")
-    with open(path.removesuffix(".txt") + "_class.ini", "w") as f:  # The CLASS input, as a record
+    with open(ini_file, "w") as f:  # The CLASS input, as a record and to know when to recompute
         f.write(ini)
     print(f"Computed the input P(k) with CLASS: {path}")
