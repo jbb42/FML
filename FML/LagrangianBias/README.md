@@ -6,37 +6,33 @@ Lagrangian positions q, advected with the particles, and all 15 auto and cross p
 
 ## Quick start: scanning any parameter
 
-`scripts/scan.py` is the whole pipeline in one command: it runs every combination of the values you give (by default
-with normal and reversed phases), skips what has already finished, and makes the figure.
+A scan is a small Python file. Copy `scripts/scan_omega_m.py`, which is all of this:
 
-```bash
-cd FML/LagrangianBias
-python3 scripts/scan.py omega_m cosmology_OmegaCDM=0.2,0.3,0.4 --seeds 1001 1002   # 3 values x 2 seeds x 2 phases = 12 runs
+```python
+from scan import scan
+
+scan("omega_m", vary={"cosmology_OmegaCDM": [0.151, 0.251, 0.351]}, seeds=[1001, 1002])
 ```
 
-- **Any parameter of `parameterfile.lua`** works, and several at once give every combination:
-  `python3 scripts/scan.py mesh force_nmesh=512,1024 particle_Npart_1D=512,1024`
-- **Other settings for all runs** with `--set`, lists in Lua braces:
-  `--set simulation_boxsize=2048 "output_redshifts={1.0,0.0}" "timestep_nsteps={15,15}"`
-- **Seeds and phases**: `--seeds 1001 1002 ...` (default: the seed in `parameterfile.lua`), `--normal-only` to skip the
-  reversed phases.
-- **More values or seeds later**: rerun with the longer list; finished runs are skipped.
-- **Check first** with `--dry-run` (writes the parameter files, runs nothing), **replot** with `--plot-only` (also
-  works while runs are going).
-- **Long scans** keep running after you log out with
-  `nohup python3 scripts/scan.py ... > scan_NAME.log 2>&1 &`; follow the running simulation with
-  `tail -F results/scans/NAME/current_log.txt`.
+and run it from this folder with `python3 scripts/scan_omega_m.py`. It runs every combination of the values in `vary`
+(here 3 values x 2 seeds x 2 phases = 12 runs), skips runs that have finished, and writes `figures/scans/omega_m.pdf`:
+for each output redshift, pages varying one parameter (mean over seeds and phases, with a 1 sigma band), each followed by
+the same divided by the first value.
 
-Runs go to `results/scans/NAME/<values>_seed<seed>_<phase>/`, the figure to `figures/scans/NAME.pdf`: for every output
-redshift, pages varying one scanned parameter (mean over seeds and phases, with a 1 sigma band), and the same divided
-by its first value. `python3 scripts/scan.py --help` lists all options.
+- `vary`: any parameters of `parameterfile.lua`, with lists of values; several give every combination, e.g.
+  `vary={"force_nmesh": [512, 1024], "particle_Npart_1D": [512, 1024]}`
+- `fixed`: parameters for all runs, e.g. `fixed={"simulation_boxsize": 2048, "output_redshifts": [1.0, 0.0]}`
+- `seeds` (default: the one in `parameterfile.lua`), `phases=(False,)` to skip the reversed phases, `ntasks` (default 64)
+- Add values or seeds later and rerun: only the new runs are done.
+- `--dry-run` only writes the parameter files; `--plot-only` only remakes the figure (also while runs are going).
+- Long scans: `nohup python3 scripts/scan_omega_m.py > scan_omega_m.log 2>&1 &`, and follow the running simulation
+  with `tail -F results/scans/omega_m/current_log.txt`.
 
-**Cosmology parameters** (`cosmology_*`) also change the initial power spectrum, so the scan computes a new linear
-P(k) for each cosmology (`scripts/input_power.py`, with CAMB if installed, otherwise CLASS, both checked against
-`../COLASolver/input/example_power_spectrum_cb_z0.000.txt` to 0.5%), saved in `results/scans/NAME/input/`. Only
-`cosmology_model = "LCDM"` is set up. This needs CAMB or a working classy; currently numpy 2.0.2 in `~/.local`
-breaks the system scipy and classy (built for numpy 1.x), so first run one of
-`pip install --user "numpy<2"` (fixes scipy and classy) or `pip install --user --upgrade scipy camb`.
+Runs go to `results/scans/<name>/<values>_seed<seed>_<phase>/`. Changing `cosmology_*` parameters also changes the
+initial power spectrum, so a new linear P(k) is computed for each cosmology by running CLASS (`scripts/input_power.py`;
+set the executable there or with the environment variable `CLASS`). It is saved, with its CLASS input file, in
+`results/scans/<name>/input/`; for the fiducial cosmology it matches `../COLASolver/input/example_power_spectrum_cb_z0.000.txt`
+to 0.2%. Only `cosmology_model = "LCDM"` is set up, and h, Omega_b and A_s stay fixed unless you vary them.
 
 ## Code
 
@@ -55,7 +51,7 @@ breaks the system scipy and classy (built for numpy 1.x), so first run one of
 
 Build the solver as usual in `../COLASolver` (`make`). The scripts here run `../COLASolver/nbody`.
 
-## Running simulations (`scripts/run/`)
+## Campaigns (`scripts/run_*.py`)
 
 Every campaign is a short Python file whose loops are the parameters it scans; edit the lists to change them.
 `simulations.py` does the work: `run("campaign/name", **parameters)` writes `parameterfile.lua` with those parameters
@@ -65,16 +61,16 @@ parameter files. `results/<campaign>/current_log.txt` always points to the runni
 
 | Campaign | Runs |
 |---|---|
-| `convergence.py` | force mesh x particles x time steps in 1024 Mpc/h, 10 seeds each |
-| `ensemble_100.py` | 100 seeds of `parameterfile.lua` |
-| `gr_vs_fofr.py` | GR vs f(R) at four resolutions, one seed as a phase-reversed pair |
-| `weekend.py` | GR vs F4/F5/F6 at z = 2, 1, 0.5, 0: 10 seeds in 1024 Mpc/h plus 2048/512 Mpc/h, and 20/30/40 steps |
-| `resolution_scan.py` | force mesh x box x particles, each in {256, 512, 1024} |
+| `run_convergence.py` | force mesh x particles x time steps in 1024 Mpc/h, 10 seeds each |
+| `run_ensemble_100.py` | 100 seeds of `parameterfile.lua` |
+| `run_gr_vs_fofr.py` | GR vs f(R) at four resolutions, one seed as a phase-reversed pair |
+| `run_weekend.py` | GR vs F4/F5/F6 at z = 2, 1, 0.5, 0: 10 seeds in 1024 Mpc/h plus 2048/512 Mpc/h, and 20/30/40 steps |
+| `run_resolution_scan.py` | force mesh x box x particles, each in {256, 512, 1024} |
 
-For example `python3 scripts/run/weekend.py --dry-run`. The 2048^3 reference is run by hand from this folder:
+For example `python3 scripts/run_weekend.py --dry-run`. The 2048^3 reference is run by hand from this folder:
 `mpirun -np <N> ../COLASolver/nbody params/parameterfile_2048.lua` (writes to `results/reference_2048/`).
 
-## Plotting (`scripts/plot/`)
+## Plotting (`scripts/plot_*.py`)
 
 Every figure shows all 15 spectra on one page, a panel per spectrum, with at most 5 lines. When more is compared,
 the PDF gets several pages, each varying one parameter (`spectra.py` does the loading, plotting and page splitting).

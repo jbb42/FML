@@ -2,7 +2,7 @@
 """Plot the 15 spectra of any runs: one line per group of runs, averaged over the group with a band of +- 1 standard
 deviation if it has several runs. One page per redshift, and per 5 groups if there are more.
 
-Usage: python3 scripts/plot/plot_runs.py OUTPUT GROUP [GROUP ...] [--ratio] [--z Z ...]
+Usage: python3 scripts/plot_runs.py OUTPUT GROUP [GROUP ...] [--ratio] [--z Z ...]
     OUTPUT    PDF to write in figures/, e.g. ensemble/all_spectra.pdf
     GROUP     a run folder, or a quoted glob pattern matching several, relative to the LagrangianBias folder
     --ratio   divide every group by the first (interpolated to the same k)

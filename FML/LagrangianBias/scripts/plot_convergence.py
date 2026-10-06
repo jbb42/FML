@@ -6,7 +6,7 @@ Writes figures/convergence/all_spectra.pdf, with pages where one of f, n and s v
     first the spectra (mean and +- 1 standard deviation over the seeds), with the 2048^3 reference run in black
     then the same divided by the best setup (the highest resolution)
 
-Usage: python3 scripts/plot/plot_convergence.py
+Usage: python3 scripts/plot_convergence.py
 """
 import glob
 import os

@@ -7,7 +7,7 @@ initial conditions for every model, outputs at z = 2, 1, 0.5, 0. One simulation 
 Results in results/weekend/. Plot with plot_fofr_boost.py weekend. Follow the running simulation with
 tail -F results/weekend/current_log.txt
 
-Usage: python3 scripts/run/weekend.py [ensemble] [steps] [--dry-run]   (default: both)
+Usage: python3 scripts/run_weekend.py [ensemble] [steps] [--dry-run]   (default: both)
 """
 import os
 import sys

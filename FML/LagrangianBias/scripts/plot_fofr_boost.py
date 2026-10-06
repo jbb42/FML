@@ -6,7 +6,7 @@ f(R) model (F4 = fR0 1e-4, ...), box size L, force mesh f, particles n or time s
 averaged over the phases (normal/reversed) both have finished; a line is the mean boost over the seeds and, with
 several seeds, the band is its standard error. Unfinished runs are skipped, so this also works during a campaign.
 
-Usage: python3 scripts/plot/plot_fofr_boost.py [campaign]    (a folder in results/, default gr_vs_fofr)
+Usage: python3 scripts/plot_fofr_boost.py [campaign]    (a folder in results/, default gr_vs_fofr)
 """
 import os
 import re

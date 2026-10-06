@@ -2,7 +2,7 @@
 """Convergence runs in a 1024 Mpc/h box: force mesh f x particles n x time steps s, 10 seeds (versions) each.
 Results in results/convergence_runs_v2_fixedseeds/f<f>_n<n>_s<s>_v<version>/. Plot with plot_convergence.py.
 
-Usage: python3 scripts/run/convergence.py [--dry-run]
+Usage: python3 scripts/run_convergence.py [--dry-run]
 """
 from simulations import run, summary
 

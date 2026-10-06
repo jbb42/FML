@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # The LagrangianBias folder
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # The LagrangianBias folder
 NBODY = os.path.join(os.path.dirname(ROOT), "COLASolver", "nbody")
 BASE_PARAMETER_FILE = os.path.join(ROOT, "parameterfile.lua")
 DRY_RUN = "--dry-run" in sys.argv

@@ -3,7 +3,7 @@
 phase-reversed pair. Both gravity models start from identical initial conditions (ic_use_gravity_model_GR = true).
 The f(R) parameters come from parameterfile.lua. Results in results/gr_vs_fofr/. Plot with plot_fofr_boost.py.
 
-Usage: python3 scripts/run/gr_vs_fofr.py [--dry-run]
+Usage: python3 scripts/run_gr_vs_fofr.py [--dry-run]
 """
 from simulations import run, summary
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """100 realisations of parameterfile.lua with different seeds (12300 + i), in results/ensemble_100seeds/output_seed_i/.
-Plot with: python3 scripts/plot/plot_runs.py ensemble/all_spectra.pdf 'results/ensemble_100seeds/*'
+Plot with: python3 scripts/plot_runs.py ensemble/all_spectra.pdf 'results/ensemble_100seeds/*'
 
-Usage: python3 scripts/run/ensemble_100.py [--dry-run]
+Usage: python3 scripts/run_ensemble_100.py [--dry-run]
 """
 from simulations import run, summary
 

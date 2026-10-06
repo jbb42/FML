@@ -15,7 +15,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 
 plt.rcParams["figure.max_open_warning"] = 0  # The pages of a PDF are all kept open until it is saved
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # The LagrangianBias folder
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # The LagrangianBias folder
 PAIRS = [(i, j) for i in range(5) for j in range(i, 5)]  # The 15 spectra, in the order of the arrays below
 NAMES = [r"\delta_m", r"\delta_L", r"\delta_L^2", r"s^2", r"\nabla^2\delta_L"]
 
