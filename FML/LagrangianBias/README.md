@@ -30,9 +30,11 @@ the same divided by the first value.
 
 Runs go to `results/scans/<name>/<values>_seed<seed>_<phase>/`. Changing `cosmology_*` parameters also changes the
 initial power spectrum, so a new linear P(k) is computed for each cosmology by running CLASS (`scripts/input_power.py`;
-set the executable there or with the environment variable `CLASS`). It is saved, with its CLASS input file, in
+set the executable there or with the environment variable `CLASS`). Each Lua parameter sets one CLASS parameter
+(`LUA_TO_CLASS`: `cosmology_h` -> `h`, `cosmology_Omegab` -> `Omega_b`, ...), and `cosmology_Neffective` and
+`cosmology_OmegaMNu` give COLASolver's neutrinos (3 species sharing the mass; `N_ur = Neffective` if massless). It is saved, with its CLASS input file, in
 `results/scans/<name>/input/`; for the fiducial cosmology it matches `../COLASolver/input/example_power_spectrum_cb_z0.000.txt`
-to 0.2%. Only `cosmology_model = "LCDM"` is set up, and h, Omega_b and A_s stay fixed unless you vary them.
+to 0.2%. Only `cosmology_model = "LCDM"` is set up; parameters you don't vary keep their `parameterfile.lua` values.
 
 ## Code
 
