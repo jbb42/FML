@@ -1171,8 +1171,8 @@ void NBodySimulation<NDIM, T>::init() {
     if (ic_random_field_type == "read_particles") {
         read_ic();
 
-        // No linear field to compute bias weights from, so zero them (get_mass() then returns 1)
-        FML::LAGRANGIANBIAS::zero_bias_weights(part);
+        // No linear field to compute bias weights from, so only the matter weight is set (get_mass() then returns 1)
+        FML::LAGRANGIANBIAS::reset_bias_weights(part);
     } else {
 
         // Generate IC from a given fourier grid. The growth rate is used to generate the velocities
@@ -1278,8 +1278,7 @@ void NBodySimulation<NDIM, T>::compute_bias_weights(double a_out) {
         const double koverH0 = k / grav->H0_hmpc;
         return grav->get_D_1LPT(a_out, koverH0) / grav->get_D_1LPT(a_ini, koverH0);
     };
-    FML::LAGRANGIANBIAS::compute_bias_weights<NDIM, T>(
-        part, bias_delta_ini_fourier, simulation_boxsize, growth_ratio_of_k, grav->is_growth_scaledependent());
+    FML::LAGRANGIANBIAS::compute_bias_weights<NDIM, T>(part, bias_delta_ini_fourier, simulation_boxsize, growth_ratio_of_k);
 }
 
 template <int NDIM, class T>

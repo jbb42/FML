@@ -12,7 +12,7 @@ Lagrangian positions q, advected with the particles, and all 15 auto and cross p
 |---|---|
 | `compute_bias_weights` | Builds the weights at q from the initial field, scaled per mode with D(k, a_out) / D(k, a_ini) |
 | `compute_bias_power_spectra` | Deposits the 5 fields at the Eulerian positions and writes `pofk_ij.txt` and `pofk_bias_info.txt` |
-| `zero_bias_weights` | Zeros the weights (particles read from file, no linear field) |
+| `reset_bias_weights` | Sets the weights to matter only (particles read from file, no linear field) |
 
 `COLASolver` calls it from three places:
 - `src/Main.cpp`: the `Particle` carries `bias_weights[]`, `active_bias_index` and `get_mass()`
