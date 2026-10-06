@@ -91,6 +91,18 @@ def scan(name, vary=None, one_at_a_time=None, fixed={}, gravity=None, seeds=None
         plot(name, [short(p) for p in vary], runs, reference, models)
 
 
+def seed_boosts(run_dirs, gr, fr):
+    """[(k, boost)] for each seed: the f(R) spectra divided by the GR ones, each averaged over the phases that finished
+    in both. Averaging the phases first cancels the leading cosmic variance, also in spectra that are odd in the
+    initial field (which a ratio per phase would not)."""
+    by_seed = {}
+    for run_dir, g, f in zip(run_dirs, gr, fr):
+        if g[0] is not None and f[0] is not None:
+            by_seed.setdefault(run_dir.split("_seed")[1].split("_")[0], []).append((g, f))
+    return [(pairs[0][0][0], np.mean([f[1] for g, f in pairs], axis=0) / np.mean([g[1] for g, f in pairs], axis=0))
+            for pairs in by_seed.values()]
+
+
 def plot(name, parameters, runs, reference, models):
     """figures/scans/<name>.pdf from the runs that have finished: per redshift, the spectra (in GR if gravity models
     are compared) with ratios to the reference values, then the boost of each f(R) model."""
@@ -116,14 +128,14 @@ def plot(name, parameters, runs, reference, models):
             if ratios:
                 figures.append(plot_spectra(ratios, f"{name}, z = {z}: {title}, relative to {first['label']}", ratio=True))
 
-        for model in models[1:]:  # Boosts f(R)/GR, from runs with the same seed and phase that both finished
+        for model in models[1:]:  # Boosts f(R)/GR
             boosts = {}
-            for values, finished in spectra[model].items():
-                pairs = [(gr, fr) for gr, fr in zip(spectra["GR"][values], finished) if gr[0] is not None and fr[0] is not None]
-                if pairs:
-                    boost = np.array([fr[1] / gr[1] for gr, fr in pairs])
-                    boosts[values] = {"k": pairs[0][0][0], "P": boost.mean(axis=0), "info": f" ({len(pairs)} pairs)",
-                                      "error": boost.std(axis=0) / np.sqrt(len(boost)) if len(boost) > 1 else None}
+            for values in spectra[model]:
+                boost = seed_boosts(runs[(values, "GR")], spectra["GR"][values], spectra[model][values])
+                if boost:
+                    k, boost = boost[0][0], np.array([b for k, b in boost])
+                    boosts[values] = {"k": k, "P": boost.mean(axis=0), "info": f" ({len(boost)} seeds)",
+                                      "error": boost.std(axis=0, ddof=1) / np.sqrt(len(boost)) if len(boost) > 1 else None}
             for title, page in pages_varying_one_parameter(boosts, parameters):
                 figures.append(plot_spectra(page, f"{name}, z = {z}: {model} / GR, {title}", ratio=True))
     if figures:
