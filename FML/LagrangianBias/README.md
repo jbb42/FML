@@ -1,7 +1,7 @@
 # Lagrangian bias spectra
 
 Basis spectra of the hybrid Lagrangian bias expansion from COLA simulations: the matter field and the
-weights {delta_L, delta_L^2 - <delta_L^2>, s^2 - <s^2>, nabla^2 delta_L}, evaluated at the particles'
+weights {$\delta_L$, delta_L^2 - <delta_L^2>, s^2 - <s^2>, nabla^2 delta_L}, evaluated at the particles'
 Lagrangian positions q, advected with the particles, and all 15 auto and cross power spectra `pofk_ij.txt`.
 
 ## Code
