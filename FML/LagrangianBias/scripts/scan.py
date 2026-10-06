@@ -36,7 +36,7 @@ def scan(name, vary=None, one_at_a_time=None, fixed={}, seeds=None, phases=(Fals
     """Give either
         vary: {parameter: [values]}, to run every combination of the values, or
         one_at_a_time: {parameter: [values]}, to change one parameter at a time while the others keep their fiducial
-                       value (from parameterfile.lua), plus one fiducial run.
+                       value (from fixed, or else parameterfile.lua), plus one fiducial run.
     fixed: {parameter: value} for all runs; seeds: the random seeds (default the one in parameterfile.lua); phases:
     False for normal, True for reversed phases. When cosmology_* parameters change, the input P(k) of each cosmology is
     computed with CLASS (input_power.py)."""
@@ -45,7 +45,7 @@ def scan(name, vary=None, one_at_a_time=None, fixed={}, seeds=None, phases=(Fals
         reference = None
     else:
         vary = one_at_a_time
-        reference = tuple(fiducial(parameter) for parameter in vary)
+        reference = tuple(fixed.get(parameter, fiducial(parameter)) for parameter in vary)
         combinations = [reference] + [reference[:i] + (value,) + reference[i + 1:]
                                       for i, values in enumerate(vary.values()) for value in values if value != reference[i]]
     runs = {}  # Values of the varied parameters -> their run folders

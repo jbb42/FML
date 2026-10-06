@@ -27,7 +27,8 @@ Run it from this folder with `python3 scripts/scan_cosmology.py` (1 fiducial + 4
 page per parameter (mean over seeds and phases, with a 1 sigma band), followed by the same divided by the fiducial run.
 
 - `one_at_a_time={parameter: [values]}` changes one parameter at a time, the others staying fiducial, plus one
-  fiducial run. Add parameters as lines, e.g. `"cosmology_ns": around_fiducial("cosmology_ns", [-0.05, 0.05])`.
+  fiducial run. The fiducial values come from `fixed`, or else from `parameterfile.lua`: `scripts/scan_planck.py`
+  centres on Planck 2018 and steps Omega_m, H_0, A_s, w0 and wa by -5, -1, +1 and +5 sigma. Add parameters as lines, e.g. `"cosmology_ns": around_fiducial("cosmology_ns", [-0.05, 0.05])`.
 - `vary={parameter: [values]}` instead runs every combination, e.g. `vary={"force_nmesh": [512, 1024], "particle_Npart_1D": [512, 1024]}`.
 - `fixed={parameter: value}` for all runs, e.g. `fixed={"simulation_boxsize": 2048, "output_redshifts": [1.0, 0.0]}`.
 - `seeds` (default: the one in `parameterfile.lua`), `phases=(False,)` to skip the reversed phases, `ntasks` (default 64).
