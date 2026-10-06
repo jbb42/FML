@@ -6,7 +6,7 @@ set xlabel 'Wavenumber k [h/Mpc]'
 set ylabel 'Power P_{ij}(k) [(Mpc/h)^3]'
 set key top right box
 
-dir = '/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/COLASolver/output/snapshot_TestSim_z0.000/'
+dir = '/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/LagrangianBias/output/snapshot_TestSim_z0.000/'
 
 plot dir.'pofk_00.txt' using 1:2 with lines lw 2 title 'P_{00} (Matter Auto)', \
      dir.'pofk_01.txt' using 1:2 with lines lw 2 title 'P_{01} (Matter - \delta_L)', \

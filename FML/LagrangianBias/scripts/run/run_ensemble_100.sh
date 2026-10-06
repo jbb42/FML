@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Run from the COLASolver root (parameterfile.lua, ./nbody and input/ use relative paths)
+# Run from the LagrangianBias root (parameterfile.lua, output/ and the input path use relative paths)
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
+NBODY="$(cd ../COLASolver && pwd)/nbody" # The COLASolver executable
 
 PARAM_FILE="parameterfile.lua"
 BASE_SEED=12300
@@ -19,8 +20,8 @@ if [ ! -f "$PARAM_FILE" ]; then
 fi
 
 # 2. Check if the executable is present and has run permissions
-if [ ! -x "./nbody" ]; then
-    echo "ERROR: Executable './nbody' not found or is missing 'chmod +x' permissions."
+if [ ! -x "$NBODY" ]; then
+    echo "ERROR: Executable '$NBODY' not found or is missing 'chmod +x' permissions."
     exit 1
 fi
 
@@ -45,7 +46,7 @@ for i in $(seq 1 $ENSEMBLE_SIZE); do
     sed -i "s/ic_random_seed = .*/ic_random_seed = $CURRENT_SEED/" $PARAM_FILE
     
     # Run solver
-    mpirun -np 64 ./nbody $PARAM_FILE
+    mpirun -np 64 "$NBODY" $PARAM_FILE
     
     # TRIPWIRE: Verify FML actually created the snapshot directory and files
     # If the simulation crashed (e.g., MPI buffer overflow), this catches it and aborts.

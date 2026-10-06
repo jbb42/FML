@@ -16,7 +16,8 @@
 #         DRY_RUN=1 scripts/run/run_weekend.sh [campaign ...]       only write the parameter files and list the runs
 #         tail -F results/weekend/current_log.txt                   follow the running simulation, switching automatically
 
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # COLASolver root
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # LagrangianBias root
+NBODY="$(cd "${BASE_DIR}/../COLASolver" && pwd)/nbody" # The COLASolver executable
 RESULTS_DIR="${BASE_DIR}/results/weekend"
 BASE_PARAM_FILE="${BASE_DIR}/parameterfile.lua"
 
@@ -34,7 +35,7 @@ SEEDS=($(seq 1001 1010)) # one ensemble round per seed
 GRAVITY_MODELS=(GR F4 F5 F6)
 
 mkdir -p "$RESULTS_DIR"
-cd "$BASE_DIR" || exit 1 # input/ paths in the parameter file are relative to the root
+cd "$BASE_DIR" || exit 1 # input paths in the parameter file are relative to the root
 
 #==================================================================================
 # Split nsteps over the output intervals in proportion to the change in a, so the step size
@@ -90,7 +91,7 @@ run_sim() {
         -e "s|^[[:space:]]*output_folder[[:space:]]*=.*|output_folder = \"${out_dir}\"|" \
         "$BASE_PARAM_FILE" > "$param_file"
 
-    local cmd=(mpirun -np "$NTASKS" ./nbody "$param_file")
+    local cmd=(mpirun -np "$NTASKS" "$NBODY" "$param_file")
     nrun=$((nrun + 1))
     if [ -n "$DRY_RUN" ]; then
         echo "DRY_RUN [$CAMPAIGN] ${cmd[0]} ${cmd[1]} ${cmd[2]} ${cmd[3]} $run_id"

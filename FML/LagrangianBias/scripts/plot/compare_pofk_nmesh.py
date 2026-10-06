@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # -------------------------------------------------------------
 # Directory Configurations
 # -------------------------------------------------------------
-# COLASolver root (this script lives in COLASolver/scripts/plot)
+# LagrangianBias root (this script lives in LagrangianBias/scripts/plot)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DIR_V4 = os.path.join(ROOT, "results", "convergence_runs_v1", "f1024_n1024_s40_v4")
 DIR_NEW = os.path.join(ROOT, "output", "snapshot_TestSim_z0.000")

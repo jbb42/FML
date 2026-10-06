@@ -30,6 +30,7 @@
 
 #include "Simulation.h"
 
+#include <FML/LagrangianBias/LagrangianBias.h>
 #include <FML/ParameterMap/ParameterMap.h>
 #include <FML/ParticleTypes/ReflectOnParticleMethods.h>
 
@@ -61,8 +62,8 @@ class Particle {
     // Optional things below:
     //=============================================================
     // Lagrangian bias weights {unused, delta_L, delta_L^2, s^2, nabla^2 delta_L}, each with its particle mean
-    // subtracted, rebuilt from the linear field at every output time
-    double bias_weights[5];
+    // subtracted, rebuilt from the linear field at every output time (see FML/LagrangianBias)
+    double bias_weights[FML::LAGRANGIANBIAS::n_bias_fields];
     static inline int active_bias_index = 0; // Choose which bias parameter to use
 
     double get_mass() const {

@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Define absolute base path
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # COLASolver root
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # LagrangianBias root
+NBODY="$(cd "${BASE_DIR}/../COLASolver" && pwd)/nbody" # The COLASolver executable
 SPECTRA_DIR="${BASE_DIR}/results/convergence_runs_v2_fixedseeds" # Central directory to save spectra
 
 # Create output directory
@@ -50,7 +51,7 @@ for f_nmesh in "${VALUES[@]}"; do
         
         # 1. Run FML nbody solver
         cd "$BASE_DIR" || exit
-        mpirun -np 64 ./nbody "$TEMP_LUA"
+        mpirun -np 64 "$NBODY" "$TEMP_LUA"
         
         MPI_STATUS=$?
             

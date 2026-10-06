@@ -6,12 +6,14 @@ FML/ComputePowerSpectra/example/powspec
 # Editor backups
 *~
 
-# COLASolver: generated simulation output, results, figures and logs
+# COLASolver: default output folder of parameterfile.lua
 FML/COLASolver/output*/
-FML/COLASolver/results/*/*
-!FML/COLASolver/results/*/README.md
-FML/COLASolver/figures/
-FML/COLASolver/logs/
-FML/COLASolver/*.pdf
-FML/COLASolver/temp_param_*.lua
-FML/COLASolver/output/
+
+# LagrangianBias: generated simulation output, results, figures and logs
+FML/LagrangianBias/output*/
+FML/LagrangianBias/results/*/*
+!FML/LagrangianBias/results/*/README.md
+FML/LagrangianBias/figures/
+FML/LagrangianBias/logs/
+FML/LagrangianBias/*.pdf
+FML/LagrangianBias/temp_param_*.lua

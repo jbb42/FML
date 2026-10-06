@@ -19,7 +19,7 @@ all_parameters_must_be_in_file = true
 -- Label
 simulation_name = "TestSim"
 -- Boxsize of simulation in Mpc/h
-simulation_boxsize = 1024
+simulation_boxsize = 1024.0
 
 ------------------------------------------------------------
 -- COLA
@@ -230,7 +230,7 @@ end
 -- Particles
 ------------------------------------------------------------
 -- Number of CDM+b particles per dimension
-particle_Npart_1D = 2048
+particle_Npart_1D = 512
 -- Factor of how many more particles to allocate space
 particle_allocation_factor = 1.25
 
@@ -244,14 +244,14 @@ output_particles = false
 -- Fileformat: GADGET, FML
 output_fileformat = "GADGET"
 -- Output folder
-output_folder = "/mn/stornext/u3/jonasbbe/pc/Dokumenter/FML/FML/COLASolver/results/reference_2048"
+output_folder = "output"
 
 ------------------------------------------------------------
 -- Time-stepping
 ------------------------------------------------------------
 -- Number of steps between the outputs (in output_redshifts). 
 -- If only one number in the list then its the total number of steps 
-timestep_nsteps = {40}
+timestep_nsteps = {10}
 -- The time-stepping method: Quinn, Tassev
 timestep_method = "Quinn"
 -- For Tassev: the nLPT parameter
@@ -269,7 +269,7 @@ end
 -- Initial conditions
 ------------------------------------------------------------
 -- The random seed
-ic_random_seed = 1230
+ic_random_seed = 1234
 -- The random generator (GSL or MT19937). Fiducial GSL is gsl_rng_ranlxd1 (as used in the 2LPTIC code for comparison)
 ic_random_generator = "GSL"
 -- Fix amplitude when generating the gaussian random field
@@ -294,7 +294,7 @@ ic_LPT_order = 2
 ic_type_of_input = "powerspectrum"
 ic_type_of_input_fileformat = "CAMB" -- Format for transferinfofile: CAMB, CLASS (run this with format=camb), AXIONCAMB. Easy to add more in CAMBReader.h
 -- Path to the input (NB: for using the example files update the path at the top of the file below)
-ic_input_filename = "input/example_power_spectrum_cb_z0.000.txt"
+ic_input_filename = "../COLASolver/input/example_power_spectrum_cb_z0.000.txt"
 -- The redshift of the P(k), T(k) we give as input
 ic_input_redshift = 0.0
 -- The initial redshift of the simulation
@@ -346,7 +346,7 @@ end
 -- Force calculation
 ------------------------------------------------------------
 -- Grid to use for computing PM forces
-force_nmesh = 2048
+force_nmesh = 512--1344
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS
 force_density_assignment_method = "CIC"
 -- The kernel to use for D^2 when solving the Poisson equation

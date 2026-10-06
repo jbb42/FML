@@ -1,12 +1,38 @@
-# Bias-spectra scripts
+# Lagrangian bias spectra
 
-All scripts locate the COLASolver root from their own path, so they can be run from anywhere.
-Simulations still read `input/` relative to the root, which the run scripts handle by `cd`-ing there.
+Basis spectra of the hybrid Lagrangian bias expansion from COLA simulations: the matter field and the
+weights {delta_L, delta_L^2 - <delta_L^2>, s^2 - <s^2>, nabla^2 delta_L}, evaluated at the particles'
+Lagrangian positions q, advected with the particles, and all 15 auto and cross power spectra `pofk_ij.txt`.
 
-## Folder layout (COLASolver/)
+## Code
+
+`LagrangianBias.h` (namespace `FML::LAGRANGIANBIAS`) does all the work and is independent of the solver:
+
+| Function | What it does |
+|---|---|
+| `compute_bias_weights` | Builds the weights at q from the initial field, scaled per mode with D(k, a_out) / D(k, a_ini) |
+| `compute_bias_power_spectra` | Deposits the 5 fields at the Eulerian positions and writes `pofk_ij.txt` and `pofk_bias_info.txt` |
+| `zero_bias_weights` | Zeros the weights (particles read from file, no linear field) |
+
+`COLASolver` calls it from three places:
+- `src/Main.cpp`: the `Particle` carries `bias_weights[]`, `active_bias_index` and `get_mass()`
+- `src/Simulation.h`: keeps the initial field (`bias_delta_ini_fourier`) and calls `compute_bias_weights` at each output
+- `src/AnalyzeOutput.h`: calls `compute_bias_power_spectra` when `pofk = true`
+
+Build the solver as usual in `../COLASolver` (`make`). The scripts here run `../COLASolver/nbody`.
+
+## Running
+
+All scripts locate the LagrangianBias root from their own path, so they can be run from anywhere.
+Simulations are run with the root as working directory, which the run scripts handle by `cd`-ing there,
+so the input file path `../COLASolver/input/...` in the parameter files is relative to the root.
+
+## Folder layout (LagrangianBias/)
 
 | Folder | Contents | In git |
 |---|---|---|
+| `LagrangianBias.h` | The bias weights and spectra (see above) | yes |
+| `parameterfile.lua` | Base parameter file used by all run scripts | yes |
 | `params/` | Extra parameter files (`parameterfile_2048.lua`: 2048^3 reference run) | yes |
 | `scripts/run/` | Batch scripts that run simulations | yes |
 | `scripts/plot/` | Plotting and comparison scripts | yes |
@@ -14,6 +40,10 @@ Simulations still read `input/` relative to the root, which the run scripts hand
 | `figures/` | Generated plots | no |
 | `logs/` | Logs from batch runs | no |
 | `output/` | Default output folder of `parameterfile.lua` | no |
+| `hostlist.txt` | Nodes for MPI runs | yes |
+
+Parameter files saved next to older results still have the old `COLASolver/` paths. They are only a record
+of the settings used (`plot_fofr_boost.py` reads them for that) and are not meant to be rerun as they are.
 
 ## Run scripts (`scripts/run/`)
 
@@ -26,8 +56,8 @@ Simulations still read `input/` relative to the root, which the run scripts hand
 | `run_weekend.sh` | Weekend campaigns, one simulation at a time, f = n = 1024, 64 tasks x 2 threads, outputs z = 2, 1, 0.5, 0, all phase-reversed pairs of GR/F4/F5/F6: `ensemble` (10 seeds, 1024 Mpc/h plus alternately 2048 and 512 Mpc/h, 30 steps), then `steps` (20/30/40 steps, first seed) | `results/weekend/<run>/` |
 | `run_resolution_scan.sh` | force mesh x box x particles scan, gnuplot figures only (deletes raw output) | `figures/resolution_scan/` |
 
-The 2048^3 reference is run by hand from the COLASolver root:
-`mpirun -np <N> ./nbody params/parameterfile_2048.lua` (writes to `results/reference_2048/`).
+The 2048^3 reference is run by hand from the LagrangianBias root:
+`mpirun -np <N> ../COLASolver/nbody params/parameterfile_2048.lua` (writes to `results/reference_2048/`).
 
 ## Plot scripts (`scripts/plot/`)
 

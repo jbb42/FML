@@ -1,15 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import glob
-import matplotlib.cm as cm
 import os
 
-# Define the directory where your simulation folders are located
-# COLASolver root (this script lives in COLASolver/scripts/plot)
+# Define directories
+# LagrangianBias root (this script lives in LagrangianBias/scripts/plot)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(ROOT, "results", "convergence_runs_v2_fixedseeds")
-OUTPUT_DIR = os.path.join(ROOT, "figures", "convergence_spectra")
+OUTPUT_DIR = os.path.join(ROOT, "figures", "convergence_spectra_ref2048")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+REF_DIR = os.path.join(ROOT, "results", "reference_2048", "snapshot_TestSim_z0.000")  # Directory containing the 2048 reference pofk_*.txt files
 
 # ==========================================
 # TOGGLE FOR 256 RESOLUTION PARAMETERS
@@ -68,7 +68,6 @@ plot_configs = [
 param_combos = set()
 for d in glob.glob(os.path.join(DATA_DIR, "f*_n*_s*_v*")):
     parts = os.path.basename(d).split('_')
-    # Folder format now f_n_s_v (length 4)
     if len(parts) >= 4:
         param_combos.add((parts[0], parts[1], parts[2]))
 
@@ -80,7 +79,7 @@ if not INCLUDE_256:
 param_combos = sorted(list(param_combos), key=lambda x: (int(x[0][1:]), int(x[1][1:]), int(x[2][1:])))
 print(f"Found {len(param_combos)} unique parameter combinations (INCLUDE_256={INCLUDE_256}).")
 
-# Standard Matplotlib cycle colors (C0 = blue, C1 = orange, C2 = green, etc.)
+# Standard Matplotlib cycle colors
 unique_remaining = sorted(list(set((n, s) for f, n, s in param_combos)))
 color_mapping = {rem: f"C{i % 10}" for i, rem in enumerate(unique_remaining)}
 
@@ -91,6 +90,24 @@ for field, spectrum_label, apply_abs in plot_configs:
     fig, ax = plt.subplots(figsize=(10, 7))
     k_min_global, k_max_global, plotted_any = np.inf, -np.inf, False
     
+    # 1. Plot the high-resolution 2048 reference baseline first (prominent black line)
+    ref_file = os.path.join(REF_DIR, f"pofk_{field}.txt")
+    if os.path.exists(ref_file):
+        ref_data = np.loadtxt(ref_file)
+        k_ref = ref_data[:, 0]
+        mean_ref = ref_data[:, 1]
+        if apply_abs:
+            mean_ref = np.abs(mean_ref)
+        valid_ref = mean_ref > 1e-10
+        k_ref, mean_ref = k_ref[valid_ref], mean_ref[valid_ref]
+        
+        if len(k_ref) > 0:
+            plotted_any = True
+            k_min_global = min(k_min_global, k_ref.min())
+            k_max_global = max(k_max_global, k_ref.max())
+            ax.plot(k_ref, mean_ref, color='black', linestyle='-', lw=1.5, label=r'$f=2048, n=2048, s=20$ (Ref)')
+
+    # 2. Plot regular parameter combinations from saved_spectra2
     for f, n, s in param_combos:
         k, mean_val, std_val, _ = load_and_average_params(f, n, s, field, is_cross_spectrum=apply_abs)
         
@@ -101,10 +118,7 @@ for field, spectrum_label, apply_abs in plot_configs:
         k_min_global = min(k_min_global, k.min())
         k_max_global = max(k_max_global, k.max())
         
-        # Line style based on f resolution
         linestyle = '--' if f == 'f512' else (':' if f == 'f256' else '-')
-        
-        # Fixed mapping call (removed 'b')
         color = color_mapping[(n, s)]
         param_label = f"$f={f[1:]}, n={n[1:]}, s={s[1:]}$"
         
@@ -125,7 +139,7 @@ for field, spectrum_label, apply_abs in plot_configs:
     
     ax.set_xlabel(r'Wavenumber $k \ [h/\mathrm{Mpc}]$')
     ax.set_ylabel(r'Power $P_{ij}(k) \ [(\mathrm{Mpc}/h)^3]$')
-    ax.set_title(f"Spectrum {spectrum_label} ($N=10$ versions)", pad=15)
+    ax.set_title(f"Spectrum {spectrum_label} (with 2048 Ref)", pad=15)
     
     ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left", framealpha=0.9, edgecolor='black', fontsize=8)
     ax.grid(True, which="both", ls=":", alpha=0.4)
@@ -137,4 +151,3 @@ for field, spectrum_label, apply_abs in plot_configs:
     plt.close(fig)
 
 print("All spectra successfully plotted and saved!")
-

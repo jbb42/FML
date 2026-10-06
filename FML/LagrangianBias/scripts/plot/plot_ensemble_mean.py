@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(description="Plot all 15 averaged FML COLA powe
 parser.add_argument('--show-all', action='store_true', help="Plot all individual realizations in the background.")
 args = parser.parse_args()
 
-# COLASolver root (this script lives in COLASolver/scripts/plot)
+# LagrangianBias root (this script lives in LagrangianBias/scripts/plot)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(ROOT, "results", "ensemble_100seeds")
 OUTPUT_DIR = os.path.join(ROOT, "figures", "ensemble_100seeds")

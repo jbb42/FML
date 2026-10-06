@@ -10,7 +10,8 @@
 # Usage:  scripts/run/run_gr_vs_fofr.sh            run everything (finished runs are skipped)
 #         DRY_RUN=1 scripts/run/run_gr_vs_fofr.sh  only write the parameter files and print the commands
 
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # COLASolver root
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # LagrangianBias root
+NBODY="$(cd "${BASE_DIR}/../COLASolver" && pwd)/nbody" # The COLASolver executable
 RESULTS_DIR="${BASE_DIR}/results/gr_vs_fofr"
 BASE_PARAM_FILE="${BASE_DIR}/parameterfile.lua"
 
@@ -29,7 +30,7 @@ REVERSE_PHASES=(false true)
 GRAVITY_MODELS=("GR" "f(R)")
 
 mkdir -p "$RESULTS_DIR"
-cd "$BASE_DIR" || exit 1 # input/ paths in the parameter file are relative to the root
+cd "$BASE_DIR" || exit 1 # input paths in the parameter file are relative to the root
 
 nfailed=0
 for res in "${RESOLUTIONS[@]}"; do
@@ -67,7 +68,7 @@ for res in "${RESOLUTIONS[@]}"; do
           -e "s|^[[:space:]]*output_folder[[:space:]]*=.*|output_folder = \"${OUT_DIR}\"|" \
           "$BASE_PARAM_FILE" > "$PARAM_FILE"
 
-      CMD=(mpirun -np "${NTASKS[$npart]}" ./nbody "$PARAM_FILE")
+      CMD=(mpirun -np "${NTASKS[$npart]}" "$NBODY" "$PARAM_FILE")
       if [ -n "$DRY_RUN" ]; then
         echo "DRY_RUN: ${CMD[*]}"
         continue

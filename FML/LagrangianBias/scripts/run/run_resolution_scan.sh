@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Define absolute base path to avoid relative path confusion
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # COLASolver root
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # LagrangianBias root
+NBODY="$(cd "${BASE_DIR}/../COLASolver" && pwd)/nbody" # The COLASolver executable
 PLOTS_DIR="${BASE_DIR}/figures/resolution_scan"
 
 # Create a central directory for all plots
@@ -43,7 +44,7 @@ for f_nmesh in "${VALUES[@]}"; do
       
       # 1. Run FML nbody solver
       cd $BASE_DIR
-      mpirun -np 64 ./nbody $TEMP_LUA
+      mpirun -np 64 "$NBODY" $TEMP_LUA
       
       # Capture the exit status of mpirun to detect crashes (like the node 42 buffer error)
       MPI_STATUS=$?

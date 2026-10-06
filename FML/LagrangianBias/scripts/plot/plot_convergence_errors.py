@@ -4,7 +4,7 @@ import glob
 import os
 
 # Define directories
-# COLASolver root (this script lives in COLASolver/scripts/plot)
+# LagrangianBias root (this script lives in LagrangianBias/scripts/plot)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(ROOT, "results", "convergence_runs_v2_fixedseeds")
 OUTPUT_DIR = os.path.join(ROOT, "figures", "convergence_errors")
