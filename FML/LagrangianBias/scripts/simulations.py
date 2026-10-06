@@ -43,8 +43,16 @@ def write_parameter_file(path, parameters):
         f.write(text)
 
 
+def check_parameters(parameters):
+    """Stop for settings that are not allowed: for now only flat universes (cosmology_OmegaK = 0). Lambda, or the
+    w0wa dark energy, is then set by COLASolver and CLASS to whatever makes the total 1."""
+    if float(parameters.get("cosmology_OmegaK", base_parameter("cosmology_OmegaK"))) != 0:
+        raise SystemExit("Only flat universes for now, so cosmology_OmegaK must be 0")
+
+
 def run(name, ntasks=64, **parameters):
     """Run parameterfile.lua with these parameters in results/<name>, unless it has already finished."""
+    check_parameters(parameters)
     out_dir = os.path.join(ROOT, "results", name)
     if os.path.exists(os.path.join(out_dir, "snapshot_TestSim_z0.000", "pofk_bias_info.txt")):
         counts["already finished"] += 1

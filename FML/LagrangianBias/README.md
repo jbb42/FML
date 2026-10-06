@@ -37,7 +37,8 @@ set the executable there or with the environment variable `CLASS`). Each Lua par
 to 0.2%. `cosmology_model = "LCDM"` and `"w0waCDM"` are set up (for w0waCDM, `cosmology_w0` -> `w0_fld`,
 `cosmology_wa` -> `wa_fld`, with `Omega_Lambda = 0`), e.g.
 `scan("w0", vary={"cosmology_w0": [-1.0, -0.9]}, fixed={"cosmology_model": "w0waCDM", "cosmology_wa": 0.0})`.
-Parameters you don't vary keep their `parameterfile.lua` values.
+Parameters you don't vary keep their `parameterfile.lua` values. The universe is always flat: runs with
+`cosmology_OmegaK` other than 0 are refused, and Lambda (or the w0wa fluid) fills the rest of the energy budget.
 - Redshift: CLASS computes P(k) at `ic_input_redshift` (0), and FML scales it back to `ic_initial_redshift` with its own
   growth factor, so the runs reproduce the CLASS P(k) at z = 0. To use CLASS at the initial redshift instead, add
   `fixed={"ic_input_redshift": 20.0}` (equal to `ic_initial_redshift`).
