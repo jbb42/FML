@@ -34,7 +34,10 @@ set the executable there or with the environment variable `CLASS`). Each Lua par
 (`LUA_TO_CLASS`: `cosmology_h` -> `h`, `cosmology_Omegab` -> `Omega_b`, ...), and `cosmology_Neffective` and
 `cosmology_OmegaMNu` give COLASolver's neutrinos (3 species sharing the mass; `N_ur = Neffective` if massless). It is saved, with its CLASS input file, in
 `results/scans/<name>/input/`; for the fiducial cosmology it matches `../COLASolver/input/example_power_spectrum_cb_z0.000.txt`
-to 0.2%. Only `cosmology_model = "LCDM"` is set up; parameters you don't vary keep their `parameterfile.lua` values.
+to 0.2%. `cosmology_model = "LCDM"` and `"w0waCDM"` are set up (for w0waCDM, `cosmology_w0` -> `w0_fld`,
+`cosmology_wa` -> `wa_fld`, with `Omega_Lambda = 0`), e.g.
+`scan("w0", vary={"cosmology_w0": [-1.0, -0.9]}, fixed={"cosmology_model": "w0waCDM", "cosmology_wa": 0.0})`.
+Parameters you don't vary keep their `parameterfile.lua` values.
 - Redshift: CLASS computes P(k) at `ic_input_redshift` (0), and FML scales it back to `ic_initial_redshift` with its own
   growth factor, so the runs reproduce the CLASS P(k) at z = 0. To use CLASS at the initial redshift instead, add
   `fixed={"ic_input_redshift": 20.0}` (equal to `ic_initial_redshift`).

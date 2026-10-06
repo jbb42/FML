@@ -22,6 +22,8 @@ LUA_TO_CLASS = {
     "cosmology_kpivot_mpc": "k_pivot",
     "ic_input_redshift": "z_pk",
 }
+# The same for cosmology_model = "w0waCDM", where a fluid with w(a) = w0 + wa (1 - a) replaces the cosmological constant
+LUA_TO_CLASS_W0WA = {**LUA_TO_CLASS, "cosmology_w0": "w0_fld", "cosmology_wa": "wa_fld"}
 
 
 def neutrinos(Neffective, OmegaMNu):
@@ -43,13 +45,17 @@ def write_input_power(parameters, path, kmax):
     def value(name):
         return parameters.get(name, base_parameter(name))
 
-    unknown = [p for p in parameters if p.startswith("cosmology_") and p not in LUA_TO_CLASS
-               and p not in ("cosmology_Neffective", "cosmology_OmegaMNu")]
-    if value("cosmology_model") != "LCDM" or unknown:
-        raise SystemExit(f"The input P(k) is only set up for cosmology_model = LCDM and {list(LUA_TO_CLASS)}, "
-                         f"cosmology_Neffective and cosmology_OmegaMNu, not {unknown or value('cosmology_model')}")
+    model = value("cosmology_model")
+    mapping = {"LCDM": LUA_TO_CLASS, "w0waCDM": LUA_TO_CLASS_W0WA}.get(model)
+    unknown = [p for p in parameters if p.startswith("cosmology_") and p not in (mapping or {})
+               and p not in ("cosmology_model", "cosmology_Neffective", "cosmology_OmegaMNu")]
+    if mapping is None or unknown:
+        raise SystemExit(f"The input P(k) is set up for cosmology_model = LCDM or w0waCDM, not {model}, "
+                         f"and for the parameters in input_power.py, not {unknown}")
 
-    class_parameters = {class_name: value(lua_name) for lua_name, class_name in LUA_TO_CLASS.items()}
+    class_parameters = {class_name: value(lua_name) for lua_name, class_name in mapping.items()}
+    if model == "w0waCDM":
+        class_parameters["Omega_Lambda"] = 0  # The fluid then fills the rest of the energy budget
     class_parameters.update(neutrinos(float(value("cosmology_Neffective")), float(value("cosmology_OmegaMNu"))))
     root = path.removesuffix(".txt") + "_class_"
     os.makedirs(os.path.dirname(path), exist_ok=True)
