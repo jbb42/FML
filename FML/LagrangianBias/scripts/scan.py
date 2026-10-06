@@ -13,7 +13,7 @@ import sys
 import numpy as np
 
 from input_power import write_input_power
-from simulations import ROOT, base_parameter, check_parameters, run, summary
+from simulations import ROOT, base_parameter, run, summary
 from spectra import load_run, pages_varying_one_parameter, plot_spectra, save
 
 
@@ -21,8 +21,6 @@ def scan(name, vary, fixed={}, seeds=None, phases=(False, True), ntasks=64):
     """vary: {parameter: [values]} to run every combination of; fixed: {parameter: value} for all runs; seeds: the
     random seeds (default the one in parameterfile.lua); phases: False for normal, True for reversed phases.
     When cosmology_* parameters change, the input P(k) of each cosmology is computed with CLASS (input_power.py)."""
-    for values in itertools.product(*vary.values()):  # Check every combination before running anything
-        check_parameters({**fixed, **dict(zip(vary, values))})
     runs = {}  # Values of the varied parameters -> their run folders
     for values in itertools.product(*vary.values()):
         label = "_".join(f"{parameter}{value}" for parameter, value in zip(vary, values))
