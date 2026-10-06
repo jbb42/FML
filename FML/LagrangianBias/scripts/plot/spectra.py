@@ -103,7 +103,7 @@ def pages_varying_one_parameter(curves, names, max_lines=5):
                 continue
             for start in range(0, len(members), max_lines):
                 chunk = members[start:start + max_lines]
-                title = f"Varying {name}, " + ", ".join(f"{n} = {v}" for n, v in zip(others, fixed))
+                title = ", ".join([f"Varying {name}"] + [f"{n} = {v}" for n, v in zip(others, fixed)])
                 pages.append((title, [{**curves[v], "label": f"{name} = {v[i]}" + curves[v].get("info", "")} for v in chunk]))
                 shown.update(chunk)
     rest = [v for v in sorted(curves) if v not in shown]

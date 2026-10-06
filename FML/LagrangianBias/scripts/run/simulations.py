@@ -29,8 +29,9 @@ def lua(value):
 
 
 def base_parameter(name):
-    """The value of a parameter in parameterfile.lua, as a string."""
-    return re.search(rf"^\s*{name}\s*=\s*([^\s-]+)", open(BASE_PARAMETER_FILE).read(), re.M).group(1)
+    """The value of a parameter in parameterfile.lua, as a string without quotes and trailing -- comment."""
+    value = re.search(rf"^\s*{name}\s*=\s*(.*?)\s*(?:--.*)?$", open(BASE_PARAMETER_FILE).read(), re.M).group(1)
+    return value.strip('"')
 
 
 def write_parameter_file(path, parameters):

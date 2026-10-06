@@ -4,6 +4,40 @@ Basis spectra of the hybrid Lagrangian bias expansion from COLA simulations: the
 weights {delta_L, delta_L^2 - <delta_L^2>, s^2 - <s^2>, nabla^2 delta_L}, evaluated at the particles'
 Lagrangian positions q, advected with the particles, and all 15 auto and cross power spectra `pofk_ij.txt`.
 
+## Quick start: scanning any parameter
+
+`scripts/scan.py` is the whole pipeline in one command: it runs every combination of the values you give (by default
+with normal and reversed phases), skips what has already finished, and makes the figure.
+
+```bash
+cd FML/LagrangianBias
+python3 scripts/scan.py omega_m cosmology_OmegaCDM=0.2,0.3,0.4 --seeds 1001 1002   # 3 values x 2 seeds x 2 phases = 12 runs
+```
+
+- **Any parameter of `parameterfile.lua`** works, and several at once give every combination:
+  `python3 scripts/scan.py mesh force_nmesh=512,1024 particle_Npart_1D=512,1024`
+- **Other settings for all runs** with `--set`, lists in Lua braces:
+  `--set simulation_boxsize=2048 "output_redshifts={1.0,0.0}" "timestep_nsteps={15,15}"`
+- **Seeds and phases**: `--seeds 1001 1002 ...` (default: the seed in `parameterfile.lua`), `--normal-only` to skip the
+  reversed phases.
+- **More values or seeds later**: rerun with the longer list; finished runs are skipped.
+- **Check first** with `--dry-run` (writes the parameter files, runs nothing), **replot** with `--plot-only` (also
+  works while runs are going).
+- **Long scans** keep running after you log out with
+  `nohup python3 scripts/scan.py ... > scan_NAME.log 2>&1 &`; follow the running simulation with
+  `tail -F results/scans/NAME/current_log.txt`.
+
+Runs go to `results/scans/NAME/<values>_seed<seed>_<phase>/`, the figure to `figures/scans/NAME.pdf`: for every output
+redshift, pages varying one scanned parameter (mean over seeds and phases, with a 1 sigma band), and the same divided
+by its first value. `python3 scripts/scan.py --help` lists all options.
+
+**Cosmology parameters** (`cosmology_*`) also change the initial power spectrum, so the scan computes a new linear
+P(k) for each cosmology (`scripts/input_power.py`, with CAMB if installed, otherwise CLASS, both checked against
+`../COLASolver/input/example_power_spectrum_cb_z0.000.txt` to 0.5%), saved in `results/scans/NAME/input/`. Only
+`cosmology_model = "LCDM"` is set up. This needs CAMB or a working classy; currently numpy 2.0.2 in `~/.local`
+breaks the system scipy and classy (built for numpy 1.x), so first run one of
+`pip install --user "numpy<2"` (fixes scipy and classy) or `pip install --user --upgrade scipy camb`.
+
 ## Code
 
 `LagrangianBias.h` (namespace `FML::LAGRANGIANBIAS`) does all the work and is independent of the solver:
