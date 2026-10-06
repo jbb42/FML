@@ -4,29 +4,42 @@ Basis spectra of the hybrid Lagrangian bias expansion from COLA simulations: the
 weights {delta_L, delta_L^2 - <delta_L^2>, s^2 - <s^2>, nabla^2 delta_L}, evaluated at the particles'
 Lagrangian positions q, advected with the particles, and all 15 auto and cross power spectra `pofk_ij.txt`.
 
-## Quick start: scanning any parameter
+## Quick start: scanning parameters
 
-A scan is a small Python file. Copy `scripts/scan_omega_m.py`, which is all of this:
+A scan is a small Python file calling `scan()`. `scripts/scan_cosmology.py` changes Omega_m and A_s one at a time by
+-50%, -10%, +10% and +50% around the fiducial cosmology of `parameterfile.lua`, with two seeds and both phases:
 
 ```python
-from scan import scan
+from scan import around_fiducial, fiducial, scan
 
-scan("omega_m", vary={"cosmology_OmegaCDM": [0.151, 0.251, 0.351]}, seeds=[1001, 1002])
+FRACTIONS = [-0.5, -0.1, 0.1, 0.5]
+Omega_b = fiducial("cosmology_Omegab")
+Omega_m = fiducial("cosmology_OmegaCDM") + Omega_b
+
+scan("cosmology", one_at_a_time={
+    "cosmology_OmegaCDM": [round(Omega_m * (1 + fraction) - Omega_b, 6) for fraction in FRACTIONS],
+    "cosmology_As": around_fiducial("cosmology_As", FRACTIONS),
+}, seeds=[1001, 1002])
 ```
 
-and run it from this folder with `python3 scripts/scan_omega_m.py`. It runs every combination of the values in `vary`
-(here 3 values x 2 seeds x 2 phases = 12 runs), skips runs that have finished, and writes `figures/scans/omega_m.pdf`:
-for each output redshift, pages varying one parameter (mean over seeds and phases, with a 1 sigma band), each followed by
-the same divided by the first value.
+Run it from this folder with `python3 scripts/scan_cosmology.py` (1 fiducial + 4 + 4 cosmologies x 2 seeds x 2 phases
+= 36 runs). It skips runs that have finished and writes `figures/scans/cosmology.pdf`: for each output redshift, a
+page per parameter (mean over seeds and phases, with a 1 sigma band), followed by the same divided by the fiducial run.
 
-- `vary`: any parameters of `parameterfile.lua`, with lists of values; several give every combination, e.g.
-  `vary={"force_nmesh": [512, 1024], "particle_Npart_1D": [512, 1024]}`
-- `fixed`: parameters for all runs, e.g. `fixed={"simulation_boxsize": 2048, "output_redshifts": [1.0, 0.0]}`
-- `seeds` (default: the one in `parameterfile.lua`), `phases=(False,)` to skip the reversed phases, `ntasks` (default 64)
+- `one_at_a_time={parameter: [values]}` changes one parameter at a time, the others staying fiducial, plus one
+  fiducial run. Add parameters as lines, e.g. `"cosmology_ns": around_fiducial("cosmology_ns", [-0.05, 0.05])`.
+- `vary={parameter: [values]}` instead runs every combination, e.g. `vary={"force_nmesh": [512, 1024], "particle_Npart_1D": [512, 1024]}`.
+- `fixed={parameter: value}` for all runs, e.g. `fixed={"simulation_boxsize": 2048, "output_redshifts": [1.0, 0.0]}`.
+- `seeds` (default: the one in `parameterfile.lua`), `phases=(False,)` to skip the reversed phases, `ntasks` (default 64).
+- Everything else comes from `parameterfile.lua`: 1024 Mpc/h, 1024^3 particles and force mesh, 30 time steps, ICs at
+  z = 20, output at z = 0, GR. Change the defaults there, or per scan with `fixed`.
+- To compare gravity models, give all runs the same initial conditions with `fixed={"ic_use_gravity_model_GR": True}`
+  (the input LCDM P(k) is then scaled back to the initial redshift with GR growth for every model, as in
+  `run_gr_vs_fofr.py` and `run_weekend.py`).
 - Add values or seeds later and rerun: only the new runs are done.
 - `--dry-run` only writes the parameter files; `--plot-only` only remakes the figure (also while runs are going).
-- Long scans: `nohup python3 scripts/scan_omega_m.py > scan_omega_m.log 2>&1 &`, and follow the running simulation
-  with `tail -F results/scans/omega_m/current_log.txt`.
+- Long scans: `nohup python3 scripts/scan_cosmology.py > scan_cosmology.log 2>&1 &`, and follow the running
+  simulation with `tail -F results/scans/cosmology/current_log.txt`.
 
 Runs go to `results/scans/<name>/<values>_seed<seed>_<phase>/`. Changing `cosmology_*` parameters also changes the
 initial power spectrum, so a new linear P(k) is computed for each cosmology by running CLASS (`scripts/input_power.py`;
@@ -97,7 +110,7 @@ the PDF gets several pages, each varying one parameter (`spectra.py` does the lo
 | Folder | Contents | In git |
 |---|---|---|
 | `LagrangianBias.h` | The bias weights and spectra (see above) | yes |
-| `parameterfile.lua` | Base parameter file for all campaigns | yes |
+| `parameterfile.lua` | Base parameter file for all scans and campaigns | yes |
 | `params/` | Extra parameter files (`parameterfile_2048.lua`: 2048^3 reference run) | yes |
 | `scripts/` | Campaigns and plots, see above | yes |
 | `results/<campaign>/<run>/` | Parameter file, log and `snapshot_*` output of each run | READMEs only |

@@ -53,7 +53,7 @@ def plot_spectra(curves, title="", ratio=False, kmin=0.0, kmax=np.inf):
         ax.axis("off")  # Panels below the diagonal stay empty
 
     for n, curve in enumerate(curves):
-        options = {key: value for key, value in curve.items() if key not in ("k", "P", "error", "info")}
+        options = {key: value for key, value in curve.items() if key not in ("k", "P", "error", "info", "values")}
         options.setdefault("color", f"C{n % 10}")
         k = curve["k"]
         shown = (k >= kmin) & (k <= kmax)
@@ -104,12 +104,13 @@ def pages_varying_one_parameter(curves, names, max_lines=5):
             for start in range(0, len(members), max_lines):
                 chunk = members[start:start + max_lines]
                 title = ", ".join([f"Varying {name}"] + [f"{n} = {v}" for n, v in zip(others, fixed)])
-                pages.append((title, [{**curves[v], "label": f"{name} = {v[i]}" + curves[v].get("info", "")} for v in chunk]))
+                pages.append((title, [{**curves[v], "values": v, "label": f"{name} = {v[i]}" + curves[v].get("info", "")}
+                                      for v in chunk]))
                 shown.update(chunk)
     rest = [v for v in sorted(curves) if v not in shown]
     for start in range(0, len(rest), max_lines):
         chunk = rest[start:start + max_lines]
-        pages.append(("Other", [{**curves[v], "label": ", ".join(f"{n} = {x}" for n, x in zip(names, v))
+        pages.append(("Other", [{**curves[v], "values": v, "label": ", ".join(f"{n} = {x}" for n, x in zip(names, v))
                                  + curves[v].get("info", "")} for v in chunk]))
     return pages
 

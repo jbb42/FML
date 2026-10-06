@@ -9,5 +9,6 @@ from simulations import run, summary
 for f in [256, 512, 1024]:
     for box in [256, 512, 1024]:
         for n in [256, 512, 1024]:
-            run(f"resolution_scan/f{f}_L{box}_n{n}", force_nmesh=f, simulation_boxsize=box, particle_Npart_1D=n)
+            run(f"resolution_scan/f{f}_L{box}_n{n}", force_nmesh=f, simulation_boxsize=box, particle_Npart_1D=n,
+                timestep_nsteps=[10])
 summary()
