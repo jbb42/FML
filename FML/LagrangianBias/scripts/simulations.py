@@ -63,9 +63,12 @@ def run(name, ntasks=64, **parameters):
     if os.path.lexists(current_log):
         os.remove(current_log)
     os.symlink(os.path.join(out_dir, "log.txt"), current_log)
+    # Each MPI task gets its share of the machine's hardware threads (unless OMP_NUM_THREADS is set), and Intel MPI
+    # pins each task to its own cores
+    env = {"OMP_NUM_THREADS": str(max(1, os.cpu_count() // ntasks)), "I_MPI_PIN_DOMAIN": "omp", **os.environ}
     start = time.time()
     with open(os.path.join(out_dir, "log.txt"), "w") as log:
-        status = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT).returncode  # Input paths are relative to ROOT
+        status = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, env=env).returncode  # Input paths are relative to ROOT
     if status == 0 and os.path.exists(os.path.join(out_dir, "snapshot_TestSim_z0.000", "pofk_bias_info.txt")):
         print(f"{time.strftime('%F %T')} Finished {name} in {(time.time() - start) / 60:.0f} min")
     else:
