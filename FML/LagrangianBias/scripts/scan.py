@@ -29,7 +29,9 @@ def scan(name, vary, fixed={}, seeds=None, phases=(False, True), ntasks=64):
         if cosmology:  # A new input P(k), computed once per cosmology
             cosmology_label = "_".join(f"{parameter}{value}" for parameter, value in sorted(cosmology.items()))
             input_file = os.path.join(ROOT, "results", "scans", name, "input", f"pofk_{cosmology_label}.txt")
-            write_input_power(parameters, input_file)
+            # FML needs P(k) up to the corner of the IC grid (ic_nmesh = particle_Npart_1D), sqrt(3) k_Nyquist
+            npart, box = (float(parameters.get(p, base_parameter(p))) for p in ("particle_Npart_1D", "simulation_boxsize"))
+            write_input_power(parameters, input_file, kmax=3**0.5 * np.pi * npart / box)
             parameters.update(ic_type_of_input="powerspectrum", ic_input_filename=input_file)
         runs[values] = []
         for seed in seeds or [int(base_parameter("ic_random_seed"))]:

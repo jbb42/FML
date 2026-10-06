@@ -33,11 +33,11 @@ def neutrinos(Neffective, OmegaMNu):
             "T_ncdm": (Neffective / 3) ** 0.25 * (4 / 11) ** (1 / 3)}
 
 
-def write_input_power(parameters, path):
+def write_input_power(parameters, path, kmax):
     """Write the linear CDM+baryon P(k) at ic_input_redshift for the cosmology in parameters (the rest from
-    parameterfile.lua) to path, as columns k (h/Mpc) and P(k) (Mpc/h)^3. Nothing is done if path exists. The CLASS
-    input file is kept next to it as a record."""
-    if os.path.exists(path):
+    parameterfile.lua) to path, as columns k (h/Mpc) and P(k) (Mpc/h)^3, up to at least kmax (h/Mpc). Nothing is done if
+    path already goes that far. The CLASS input file is kept next to it as a record."""
+    if os.path.exists(path) and np.loadtxt(path)[-1, 0] >= kmax:
         return
 
     def value(name):
@@ -54,7 +54,7 @@ def write_input_power(parameters, path):
     root = path.removesuffix(".txt") + "_class_"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(root + "input.ini", "w") as f:
-        f.write("output = mPk\nP_k_max_h/Mpc = 100\nk_per_decade_for_pk = 32\n")
+        f.write(f"output = mPk\nP_k_max_h/Mpc = {max(100.0, 1.1 * kmax)}\nk_per_decade_for_pk = 32\n")
         f.writelines(f"{name} = {v}\n" for name, v in class_parameters.items())
         f.write(f"root = {root}\n")
     subprocess.run([CLASS, root + "input.ini"], check=True, stdout=subprocess.DEVNULL)
