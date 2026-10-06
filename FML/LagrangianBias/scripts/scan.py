@@ -19,8 +19,12 @@ from spectra import load_run, pages_varying_one_parameter, plot_spectra, save
 
 
 def fiducial(parameter):
-    """The value of a parameter in parameterfile.lua, as a number."""
-    return float(base_parameter(parameter))
+    """The value of a parameter in parameterfile.lua: a number, or a string such as "GR"."""
+    value = base_parameter(parameter)
+    try:
+        return float(value)
+    except ValueError:
+        return value
 
 
 def around_fiducial(parameter, fractions):

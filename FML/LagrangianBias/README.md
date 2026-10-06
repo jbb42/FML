@@ -33,9 +33,11 @@ page per parameter (mean over seeds and phases, with a 1 sigma band), followed b
 - `seeds` (default: the one in `parameterfile.lua`), `phases=(False,)` to skip the reversed phases, `ntasks` (default 64).
 - Everything else comes from `parameterfile.lua`: 1024 Mpc/h, 1024^3 particles and force mesh, 30 time steps, ICs at
   z = 20, output at z = 0, GR. Change the defaults there, or per scan with `fixed`.
-- To compare gravity models, give all runs the same initial conditions with `fixed={"ic_use_gravity_model_GR": True}`
-  (the input LCDM P(k) is then scaled back to the initial redshift with GR growth for every model, as in
-  `run_gr_vs_fofr.py` and `run_weekend.py`).
+- Scans run the gravity model of `parameterfile.lua` (GR). To compare with f(R), scan `gravity_model` and give all
+  runs the same initial conditions (the input LCDM P(k) is then scaled back with GR growth for every model, as in
+  `run_gr_vs_fofr.py` and `run_weekend.py`); the ratio pages are then the boost f(R)/GR:
+  `scan("fofr", one_at_a_time={"gravity_model": ["f(R)"]}, fixed={"ic_use_gravity_model_GR": True})`, or for every
+  cosmology of a scan `vary={"cosmology_OmegaCDM": [...], "gravity_model": ["GR", "f(R)"]}`.
 - Add values or seeds later and rerun: only the new runs are done.
 - `--dry-run` only writes the parameter files; `--plot-only` only remakes the figure (also while runs are going).
 - Long scans: `nohup python3 scripts/scan_cosmology.py > scan_cosmology.log 2>&1 &`, and follow the running
