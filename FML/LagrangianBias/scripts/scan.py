@@ -123,9 +123,10 @@ def plot(name, parameters, runs, reference, models):
         for title, page in pages_varying_one_parameter(curves, parameters):
             figures.append(plot_spectra(page, f"{name}, z = {z}: {title}"))
             first = next((curve for curve in page if curve["values"] == reference), page[0])
+            # Keeping the reference (a line at 1) keeps the colours of the spectra page
             ratios = [{**curve, "error": None, "P": curve["P"] / [np.interp(curve["k"], first["k"], P) for P in first["P"]]}
-                      for curve in page if curve is not first]
-            if ratios:
+                      for curve in page]
+            if len(ratios) > 1:
                 figures.append(plot_spectra(ratios, f"{name}, z = {z}: {title}, relative to {first['label']}", ratio=True))
 
         for model in models[1:]:  # Boosts f(R)/GR
@@ -134,7 +135,7 @@ def plot(name, parameters, runs, reference, models):
                 boost = seed_boosts(runs[(values, "GR")], spectra["GR"][values], spectra[model][values])
                 if boost:
                     k, boost = boost[0][0], np.array([b for k, b in boost])
-                    boosts[values] = {"k": k, "P": boost.mean(axis=0), "info": f" ({len(boost)} seeds)",
+                    boosts[values] = {"k": k, "P": boost.mean(axis=0), "info": f" ({len(boost)} seed{'s' if len(boost) > 1 else ''})",
                                       "error": boost.std(axis=0, ddof=1) / np.sqrt(len(boost)) if len(boost) > 1 else None}
             for title, page in pages_varying_one_parameter(boosts, parameters):
                 figures.append(plot_spectra(page, f"{name}, z = {z}: {model} / GR, {title}", ratio=True))
