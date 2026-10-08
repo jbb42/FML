@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""100 realisations of parameterfile.lua with different seeds (12300 + i), in results/ensemble_100seeds/output_seed_i/.
-Plot with: python3 scripts/plot_runs.py ensemble/all_spectra.pdf 'results/ensemble_100seeds/*'
+"""100 realisations of parameterfile.lua with different seeds (12300 + i), at 512^3 with 10 steps. Writes
+figures/ensemble/all_spectra.pdf and figures/ensemble/P_ij.pdf: their mean and standard deviation.
 
-Usage: python3 scripts/run_ensemble_100.py [--dry-run]
+    python3 scripts/run_ensemble_100.py [--dry-run] [--plot-only]
 """
-from simulations import run, summary
+from plot_page import save_pages
+from plot_single import save_single
+from runs import run, summary
+from spectra import mean_curve
 
-for i in range(1, 101):
-    run(f"ensemble_100seeds/output_seed_{i}", ic_random_seed=12300 + i,
-        particle_Npart_1D=512, force_nmesh=512, timestep_nsteps=[10])  # The settings it was run with
+folders = [run(f"ensemble_100seeds/output_seed_{i}", ic_random_seed=12300 + i,
+               particle_Npart_1D=512, force_nmesh=512, timestep_nsteps=[10]) for i in range(1, 101)]
 summary()
+
+curve = mean_curve(folders)
+figures = [{"title": "z = 0.0", "curves": [{**curve, "label": "ensemble_100seeds" + curve["info"]}]}]
+save_pages(figures, "ensemble/all_spectra.pdf")
+save_single(figures, "ensemble")
