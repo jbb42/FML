@@ -15,6 +15,7 @@
 #include <FML/ParameterMap/ParameterMap.h>
 #include <FML/RandomFields/GaussianRandomField.h>
 #include <FML/RandomFields/NonLocalGaussianRandomField.h>
+#include <FML/Smoothing/SmoothingFourier.h>
 #include <FML/Spline/Spline.h>
 #include <FML/Timing/Timings.h>
 
@@ -197,6 +198,8 @@ class NBodySimulation {
     bool pofk_interlacing;                      // Use interlacing for alias reduction?
     bool pofk_subtract_shotnoise{true};         // Subtract shotnoise?
     std::string pofk_density_assignment_method; // Density assignment method (NGP, CIC, ...)
+    double pofk_bias_smoothing_scale_hmpc{0.0};          // Smoothing radius R of the linear field of the bias weights (0 = none)
+    std::string pofk_bias_smoothing_filter{"gaussian"};  // Its filter (gaussian, tophat, sharpk)
 
     // Power-spectrum multipoles
     bool pofk_multipole;                                  // Compute power-spectrum multipoles when we output
@@ -673,6 +676,8 @@ void NBodySimulation<NDIM, T>::read_parameters(ParameterMap & param) {
         pofk_interlacing = param.get<bool>("pofk_interlacing");
         pofk_subtract_shotnoise = param.get<bool>("pofk_subtract_shotnoise");
         pofk_density_assignment_method = param.get<std::string>("pofk_density_assignment_method");
+        pofk_bias_smoothing_scale_hmpc = param.get<double>("pofk_bias_smoothing_scale_hmpc");
+        pofk_bias_smoothing_filter = param.get<std::string>("pofk_bias_smoothing_filter");
 
         if (FML::ThisTask == 0) {
             std::cout << "pofk                                     : " << pofk << "\n";
@@ -680,6 +685,8 @@ void NBodySimulation<NDIM, T>::read_parameters(ParameterMap & param) {
             std::cout << "pofk_interlacing                         : " << pofk_interlacing << "\n";
             std::cout << "pofk_subtract_shotnoise                  : " << pofk_subtract_shotnoise << "\n";
             std::cout << "pofk_density_assignment_method           : " << pofk_density_assignment_method << "\n";
+            std::cout << "pofk_bias_smoothing_scale_hmpc           : " << pofk_bias_smoothing_scale_hmpc << "\n";
+            std::cout << "pofk_bias_smoothing_filter               : " << pofk_bias_smoothing_filter << "\n";
         }
     }
 
@@ -1207,6 +1214,12 @@ void NBodySimulation<NDIM, T>::init() {
         // Keep the initial density field: the Lagrangian bias weights are built from it at every output
         bias_delta_ini_fourier = delta_ini_fourier;
         bias_delta_ini_fourier.add_memory_label("bias_delta_ini_fourier(k)");
+
+        // Smooth it (only the bias weights use it, not the dynamics). The filter takes R in units of the box
+        if (pofk_bias_smoothing_scale_hmpc > 0.0)
+            FML::GRID::smoothing_filter_fourier_space(bias_delta_ini_fourier,
+                                                      pofk_bias_smoothing_scale_hmpc / simulation_boxsize,
+                                                      pofk_bias_smoothing_filter);
 
         // Store potential in the class
         if (simulation_use_cola and simulation_use_scaledependent_cola) {

@@ -327,6 +327,8 @@ void read_parameterfile(ParameterMap & param, std::string filename) {
         param["pofk_interlacing"] = lfp.read_bool("pofk_interlacing", false, OPTIONAL);
         param["pofk_subtract_shotnoise"] = lfp.read_bool("pofk_subtract_shotnoise", false, OPTIONAL);
         param["pofk_density_assignment_method"] = lfp.read_string("pofk_density_assignment_method", "CIC", OPTIONAL);
+        param["pofk_bias_smoothing_scale_hmpc"] = lfp.read_double("pofk_bias_smoothing_scale_hmpc", 0.0, OPTIONAL);
+        param["pofk_bias_smoothing_filter"] = lfp.read_string("pofk_bias_smoothing_filter", "gaussian", OPTIONAL);
     }
 
     //=============================================================

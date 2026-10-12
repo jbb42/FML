@@ -45,5 +45,6 @@ if __name__ == "__main__":  # So that other scans can import PLANCK
         "cosmology_wa": [round(n * 0.29, 6) for n in [-5, -1, 1, 3]],
     })
     figures = scan_figures(planck)
+    figures = [{**f, "kmin": 0.1, "kmax": 1.0} for f in figures]
     save_pages(figures, "scans/planck.pdf")
-    save_single(figures, "scans/planck")
+    #save_single(figures, "scans/planck")

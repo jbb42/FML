@@ -106,8 +106,7 @@ def scan_figures(scan):
                             **names})
     return figures
 
-
-def pages_varying_one_parameter(curves, names, max_lines=5):
+def pages_varying_one_parameter(curves, names, max_lines=6):
     """Split {values: curve} into pages where only one parameter varies, with at most max_lines lines each, so they
     stay readable. Returns a list of (title, curves), each curve labelled by the value that varies on its page.
     Curves that differ from all others in more than one parameter are put on extra pages at the end."""

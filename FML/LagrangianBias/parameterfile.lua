@@ -438,13 +438,18 @@ fof_buffer_length_mpch = 3.0
 -- Compute power-spectrum when we output
 pofk = true
 -- Gridsize to use for this
-pofk_nmesh = 512
+pofk_nmesh = 1024
 -- Use interlaced grids for alias reduction?
 pofk_interlacing = true
 -- Subtract shotnoise?
 pofk_subtract_shotnoise = false
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS, ...
 pofk_density_assignment_method = "PCS"
+-- Smoothing radius R in Mpc/h of the linear field the bias weights (delta_L, delta_L^2, s^2, nabla^2 delta_L)
+-- are built from (0 = no smoothing). Does not change the simulation itself
+pofk_bias_smoothing_scale_hmpc = 0.0
+-- Its filter: gaussian exp(-k^2 R^2 / 2), tophat or sharpk
+pofk_bias_smoothing_filter = "gaussian"
 
 ------------------------------------------------------------
 -- Power-spectrum multipole evaluation

@@ -1,4 +1,4 @@
-"""All 15 spectra on one page, a panel per spectrum, with at most 5 lines per page: figures with more curves are split
+"""All 15 spectra on one page, a panel per spectrum, with at most 6 lines per page: figures with more curves are split
 into pages where one parameter varies.
 
 From a run script:
@@ -91,7 +91,7 @@ def save(figures, filename, verbose=True):
 
 
 def save_pages(figures, filename):
-    """figures/<filename>: the figures (from spectra.py), each split into pages of at most 5 lines, where only one
+    """figures/<filename>: the figures (from spectra.py), each split into pages of at most 6 lines, where only one
     parameter varies."""
     pages = []
     for figure in figures:
@@ -99,7 +99,7 @@ def save_pages(figures, filename):
         if isinstance(curves, dict):
             split = pages_varying_one_parameter(curves, figure["names"])
         else:
-            split = [("", curves[start:start + 5]) for start in range(0, len(curves), 5)]
+            split = [("", curves[start:start + 6]) for start in range(0, len(curves), 6)]
         for subtitle, page in split:
             title = ": ".join(text for text in (figure["title"], subtitle) if text)
             pages.append(plot_page(page + figure.get("extra", []), title,
