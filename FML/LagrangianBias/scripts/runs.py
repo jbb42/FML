@@ -259,7 +259,7 @@ def scan(name, vary=None, one_at_a_time=None, fixed={}, gravity=None, seeds=None
                 write_input_power(settings, input_file)
             settings.update(ic_type_of_input="powerspectrum", ic_input_filename=input_file)
         label = "_".join(f"{short(p)}{v}" for p, v in changed.items()) or "fiducial"
-        for model in models:
+        for model in models[::-1]:  # f(R) before GR, as it needs the most memory
             model_settings = {**gravity_parameters(model), "ic_use_gravity_model_GR": True} if model else {}
             for seed in seeds or [int(base_parameter("ic_random_seed"))]:
                 for phase in phases:

@@ -19,16 +19,19 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 
-from spectra import NAMES, PAIRS, ROOT, group_figures, pages_varying_one_parameter
+from spectra import NAMES, PAIRS, ROOT, group_figures, label, pages_varying_one_parameter
 
 plt.rcParams["figure.max_open_warning"] = 0  # The pages of a PDF are all kept open until it is saved
-OPTIONS = ("ratio", "kmin", "kmax", "line", "ylabel")  # Of a figure, passed on to the plot functions
+OPTIONS = ("ratio", "kmin", "kmax", "line", "ylabel", "ylim", "band")  # Of a figure, passed on to the plot functions
+ONE_PAGE = 10  # Figures with at most this many curves (one per colour) are drawn on a single page
+LINESTYLES = ["-", "--", ":", "-."]
 
 
-def plot_page(curves, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.0, ylabel="ratio"):
+def plot_page(curves, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.0, ylabel="ratio", ylim=None, band=None):
     """A page with one panel per spectrum, the upper triangle of a 5 x 5 grid, and one line per curve. The spectra
     are drawn as |P| on log axes, or with ratio=True on a linear axis with a horizontal line at line (1 for ratios,
-    0 for differences)."""
+    0 for differences), the same y range ylim in every panel (default: from the curves, see set_ratio_range), and a
+    grey band line +- band (e.g. 0.01 for +-1%)."""
     fig, axes = plt.subplots(5, 5, figsize=(16, 10), sharex=True)
     fig.subplots_adjust(left=0.05, right=0.99, bottom=0.07, top=0.93, wspace=0.3, hspace=0.35)
     for ax in axes.flat:
@@ -53,7 +56,7 @@ def plot_page(curves, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.0, yl
         ax.tick_params(labelbottom=(i == j), labelsize=8)  # x labels only on the bottom panel of each column
         if ratio:
             ax.axhline(line, color="k", lw=0.8)
-            set_ratio_range(ax, line)
+            set_ratio_range(ax, line, ylim, band)
         else:
             ax.set_yscale("log")
 
@@ -65,9 +68,14 @@ def plot_page(curves, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.0, yl
     return fig
 
 
-def set_ratio_range(ax, line=1.0):
-    """y range from the 2-98th percentile of the lines (always including the horizontal line), so a single spike,
-    e.g. where a spectrum crosses zero, does not flatten the panel."""
+def set_ratio_range(ax, line=1.0, ylim=None, band=None):
+    """y range ylim, or else from the 2-98th percentile of the lines (always including the horizontal line), so a
+    single spike, e.g. where a spectrum crosses zero, does not flatten the panel. With band, a grey band line +- band."""
+    if band:
+        ax.axhspan(line - band, line + band, color="0.88", lw=0, zorder=0)
+    if ylim:
+        ax.set_ylim(*ylim)
+        return
     y = np.concatenate([l.get_ydata() for l in ax.get_lines()[:-1]])  # The last line is the horizontal one
     y = y[np.isfinite(y)]
     if y.size:
@@ -91,12 +99,19 @@ def save(figures, filename, verbose=True):
 
 
 def save_pages(figures, filename):
-    """figures/<filename>: the figures (from spectra.py), each split into pages of at most 6 lines, where only one
-    parameter varies."""
+    """figures/<filename>: the figures (from spectra.py), each on one page if it has at most ONE_PAGE curves, else
+    split into pages of at most 6 lines, where only one parameter varies."""
     pages = []
     for figure in figures:
         curves = figure["curves"]
-        if isinstance(curves, dict):
+        if isinstance(curves, dict) and len(curves) <= ONE_PAGE:  # Labelled by all their parameter values
+            split = [("", [{**curve, "label": label(values, figure["names"]) + curve.get("info", "")}
+                           for values, curve in sorted(curves.items())])]
+            if len(figure["names"]) == 2:  # Colour by the first parameter, line style by the second
+                first, second = (sorted({values[n] for values in curves}) for n in (0, 1))
+                for curve, values in zip(split[0][1], sorted(curves)):
+                    curve.update(color=f"C{first.index(values[0]) % 10}", ls=LINESTYLES[second.index(values[1]) % 4])
+        elif isinstance(curves, dict):
             split = pages_varying_one_parameter(curves, figure["names"])
         else:
             split = [("", curves[start:start + 6]) for start in range(0, len(curves), 6)]

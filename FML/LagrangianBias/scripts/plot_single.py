@@ -19,9 +19,10 @@ STYLE = {"font.family": "serif", "mathtext.fontset": "cm", "font.size": 12, "axe
 LINESTYLES = ["-", "--", ":", "-."]  # After every 10 colours
 
 
-def plot_single(curves, p, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.0, ylabel="ratio"):
+def plot_single(curves, p, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.0, ylabel="ratio", ylim=None,
+                band=None):
     """Spectrum number p (of spectra.PAIRS) of every curve, as |P| on log axes, or with ratio=True on a linear axis
-    with a horizontal line at line."""
+    with a horizontal line at line, y range ylim and a grey band line +- band (see plot_page.set_ratio_range)."""
     i, j = PAIRS[p]
     fig, ax = plt.subplots(figsize=(10, 7))
     for n, curve in enumerate(curves):
@@ -37,7 +38,7 @@ def plot_single(curves, p, title="", ratio=False, kmin=0.0, kmax=np.inf, line=1.
     ax.set_xscale("log")
     if ratio:
         ax.axhline(line, color="k", lw=0.8)
-        set_ratio_range(ax, line)
+        set_ratio_range(ax, line, ylim, band)
     else:
         ax.set_yscale("log")
     ax.set_title(rf"$P_{{{i}{j}}}$: ${NAMES[i]} \times {NAMES[j]}$" + (f"\n{title}" if title else ""))

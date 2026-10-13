@@ -10,7 +10,8 @@ A figure is a dict with
     "curves": {values: curve}, with the values of the parameters "names", or a list of labelled curves
     "names", "fiducial" (the fiducial values, so labels only show what differs from them)
     "extra": curves drawn on every page, e.g. a reference
-    "ratio", "kmin", "kmax", "line", "ylabel": options of plot_page() and plot_single()
+    "kind": "spectra", "relative" or "boost" for the figures of scan_figures()
+    "ratio", "kmin", "kmax", "line", "ylabel", "ylim", "band": options of plot_page() and plot_single()
 """
 import functools
 import glob
@@ -52,11 +53,39 @@ def mean_curve(folders, z=0.0):
             "info": f" ({len(P)} runs)"}
 
 
+def paired_ratios(pairs):
+    """{values: curve} from pairs {values: {seed: [((k, P_denominator), (k, P_numerator)), ...]}}, one pair per phase.
+    The ratio of the means over all phases and seeds: averaging the phases cancels the leading cosmic variance, also
+    of spectra that are odd in the initial field, and averaging the seeds before dividing keeps the ratio stable where
+    a single seed is close to zero. The error is a jackknife over the seeds (the ratio of the means without one seed
+    at a time), so it includes that numerator and denominator share their initial modes. Where the two have opposite
+    signs the ratio is meaningless and left out."""
+    def ratio(numerator, denominator):
+        return np.where(np.sign(numerator) == np.sign(denominator), numerator / denominator, np.nan)
+
+    curves = {}
+    for values, seeds in pairs.items():
+        k = next(iter(seeds.values()))[0][1][0]
+        # Per seed, the phase means [seed, spectrum, k]
+        den = np.array([np.mean([[np.interp(k, d[0], P) for P in d[1]] for d, n in runs], axis=0)
+                        for runs in seeds.values()])
+        num = np.array([np.mean([n[1] for d, n in runs], axis=0) for runs in seeds.values()])
+        n = len(num)
+        with warnings.catch_warnings():  # Ratios of zero
+            warnings.simplefilter("ignore", RuntimeWarning)
+            error = None
+            if n > 1:
+                leave_one_out = np.array([ratio(np.delete(num, i, 0).mean(0), np.delete(den, i, 0).mean(0))
+                                          for i in range(n)])
+                error = np.sqrt((n - 1) / n * ((leave_one_out - leave_one_out.mean(0)) ** 2).sum(0))
+            curves[values] = {"k": k, "P": ratio(num.mean(0), den.mean(0)), "error": error,
+                              "info": f" ({n} seed{'s' if n > 1 else ''})"}
+    return curves
+
+
 def boosts(runs, model, z=0.0):
     """{values: f(R)/GR curve} for the runs (runs.Run) in this model, each divided by the GR run with the same values,
-    seed and phase. Per seed, both are averaged over the phases that finished in both, which cancels the leading
-    cosmic variance, also of spectra that are odd in the initial field. The curve is the mean over the seeds, with
-    their standard error; where f(R) and GR have opposite signs the ratio is meaningless and left out."""
+    seed and phase (see paired_ratios)."""
     gr = {(r.values, r.seed, r.reverse): r.folder for r in runs if r.model == "GR"}
     pairs = defaultdict(lambda: defaultdict(list))  # values -> seed -> [(GR, f(R)) spectra]
     for r in runs:
@@ -64,25 +93,27 @@ def boosts(runs, model, z=0.0):
             P_gr, P_fr = load_run(gr[(r.values, r.seed, r.reverse)], z), load_run(r.folder, z)
             if P_gr[0] is not None and P_fr[0] is not None:
                 pairs[r.values][r.seed].append((P_gr, P_fr))
-    curves = {}
-    for values, seeds in pairs.items():
-        per_seed = []
-        for runs_of_seed in seeds.values():
-            P_gr = np.mean([g[1] for g, f in runs_of_seed], axis=0)
-            P_fr = np.mean([f[1] for g, f in runs_of_seed], axis=0)
-            per_seed.append(np.where(np.sign(P_fr) == np.sign(P_gr), P_fr / P_gr, np.nan))
-        with warnings.catch_warnings():  # k where every seed is NaN give NaN
-            warnings.simplefilter("ignore", RuntimeWarning)
-            n = len(per_seed)
-            curves[values] = {"k": runs_of_seed[0][0][0], "P": np.nanmean(per_seed, axis=0),
-                              "error": np.nanstd(per_seed, axis=0, ddof=1) / np.sqrt(n) if n > 1 else None,
-                              "info": f" ({n} seed{'s' if n > 1 else ''})"}
-    return curves
+    return paired_ratios(pairs)
+
+
+def relative(runs, model, reference, z=0.0):
+    """{values: curve} for the runs (runs.Run) in this model, each divided by the run with the reference values and
+    the same seed and phase (see paired_ratios). Runs with the same seed share their initial modes, so this cancels
+    cosmic variance and the error shows how much the ratio changes from seed to seed."""
+    ref = {(r.seed, r.reverse): r.folder for r in runs if r.values == reference and r.model == model}
+    pairs = defaultdict(lambda: defaultdict(list))  # values -> seed -> [(reference, run) spectra]
+    for r in runs:
+        if r.model == model and (r.seed, r.reverse) in ref:
+            P_ref, P = load_run(ref[(r.seed, r.reverse)], z), load_run(r.folder, z)
+            if P_ref[0] is not None and P[0] is not None:
+                pairs[r.values][r.seed].append((P_ref, P))
+    return paired_ratios(pairs)
 
 
 def scan_figures(scan):
     """The figures of a scan (runs.scan), for each redshift: the spectra (mean over seeds and phases, in GR if gravity
-    models are compared), the same divided by the fiducial run (or else the first), and the f(R)/GR boosts."""
+    models are compared), the same divided by the fiducial run (or else the first) seed by seed, and the f(R)/GR
+    boosts."""
     figures = []
     for z in redshifts([r.folder for r in scan.runs]):
         title = f"{scan.name}, z = {z}"
@@ -92,18 +123,16 @@ def scan_figures(scan):
             curve = mean_curve([r.folder for r in scan.runs if r.values == values and r.model == scan.models[0]], z)
             if curve:
                 spectra[values] = curve
-        figures.append({"title": title, "curves": spectra, **names})
+        figures.append({"title": title, "kind": "spectra", "curves": spectra, **names})
         if len(spectra) > 1:
             reference = scan.reference if scan.reference in spectra else min(spectra)
-            ref = spectra[reference]
-            ratios = {values: {**c, "error": None, "P": c["P"] / [np.interp(c["k"], ref["k"], P) for P in ref["P"]]}
-                      for values, c in spectra.items()}
-            relative_to = "the fiducial" if reference == scan.reference else \
+            relative_to = "the fiducial" if reference == scan.reference and len(scan.parameters) > 2 else \
                 ", ".join(f"{n} = {v}" for n, v in zip(scan.parameters, reference))
-            figures.append({"title": f"{title}, relative to {relative_to}", "curves": ratios, "ratio": True, **names})
+            figures.append({"title": f"{title}, relative to {relative_to}", "kind": "relative", "ratio": True,
+                            "curves": relative(scan.runs, scan.models[0], reference, z), **names})
         for model in scan.models[1:]:
-            figures.append({"title": f"{title}: {model} / GR", "curves": boosts(scan.runs, model, z), "ratio": True,
-                            **names})
+            figures.append({"title": f"{title}: {model} / GR", "kind": "boost", "ratio": True,
+                            "curves": boosts(scan.runs, model, z), **names})
     return figures
 
 def pages_varying_one_parameter(curves, names, max_lines=6):
