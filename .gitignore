@@ -1,0 +1,22 @@
+# The library's own rules (build products, executables, ...) are in FML/.gitignore
+
+# Old COLASolver build (the binary is kept to reproduce runs made before the switch to SimulationCode)
+FML/COLASolver/
+
+# HybridBias: generated simulation output, results, figures and logs
+FML/HybridBias/output*/
+FML/HybridBias/results/*/*
+!FML/HybridBias/results/*/README.md
+FML/HybridBias/figures/
+FML/HybridBias/logs/
+FML/HybridBias/*.pdf
+FML/HybridBias/*.log
+FML/HybridBias/temp_param_*.lua
+
+# Side projects
+FML/Argon/*
+FML/Neon/*
+
+# OS files and Python bytecode
+.DS_Store
+__pycache__/
