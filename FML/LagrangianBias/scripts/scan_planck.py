@@ -37,7 +37,7 @@ PLANCK = {"cosmology_model": "w0waCDM", "cosmology_w0": -1.0, "cosmology_wa": 0.
           "cosmology_As": float(f"{np.exp(ln_As) * 1e-10:.6g}"), "cosmology_ns": 0.9649}
 
 if __name__ == "__main__":  # So that other scans can import PLANCK
-    planck = scan("planck", fixed=PLANCK, gravity=["F5"], seeds=[1001], one_at_a_time={
+    planck = scan("planck_R1", fixed={**PLANCK, "pofk_bias_smoothing_scale_hmpc": 1.0}, gravity=["F5"], seeds=[1001], one_at_a_time={
         "cosmology_OmegaCDM": [round(Omega_m + n * 0.0073 - Omega_b, 6) for n in SIGMAS],
         "cosmology_h": [round(h + n * 0.0054, 6) for n in SIGMAS],
         "cosmology_As": [float(f"{np.exp(ln_As + n * 0.014) * 1e-10:.6g}") for n in SIGMAS],
@@ -46,5 +46,5 @@ if __name__ == "__main__":  # So that other scans can import PLANCK
     })
     figures = scan_figures(planck)
     figures = [{**f, "kmin": 0.1, "kmax": 1.0} for f in figures]
-    save_pages(figures, "scans/planck.pdf")
+    save_pages(figures, "scans/planck_R1.pdf")
     #save_single(figures, "scans/planck")

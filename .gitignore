@@ -18,5 +18,9 @@ FML/LagrangianBias/logs/
 FML/LagrangianBias/*.pdf
 FML/LagrangianBias/temp_param_*.lua
 
+# Side projects
+FML/Argon/*
+FML/Neon/*
+
 # Python bytecode
 __pycache__/
