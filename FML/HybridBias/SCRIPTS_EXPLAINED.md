@@ -8,11 +8,11 @@ the function names still lead to the right place.
 
 ## 1. [runs.py](scripts/runs.py): runs the simulations
 
-### Header and module constants (lines 1–32)
+### Header and module constants (lines 1–48)
 
-- **1–14, docstring.** What the file does, plus the two ways to use it: the command line, or `run()`/`scan()` from a
+- **1–15, docstring.** What the file does, plus the two ways to use it: the command line, or `run()`/`scan()` from a
   script.
-- **15–25, imports.**
+- **16–26, imports.**
   - `ast` parses command-line values.
   - `itertools` builds parameter combinations.
   - `re` edits the Lua file.
@@ -20,30 +20,37 @@ the function names still lead to the right place.
   - `tempfile` gives CLASS a short folder.
   - `dataclass` makes the small `Run`/`Scan` records.
   - `numpy` reads CLASS output.
-- **28, `ROOT`.** `__file__` is `.../LagrangianBias/scripts/runs.py`. One `dirname` gives `scripts/`, the second gives
-  `LagrangianBias/`. All paths are built from this, so the scripts work from any directory.
-- **29, `NBODY`.** The solver executable, `../COLASolver/nbody` next to `LagrangianBias`.
-- **30, `BASE_PARAMETER_FILE`.** The Lua file every run is copied from.
-- **31, `DRY_RUN`, `PLOT_ONLY`.** True if those flags are anywhere on the command line. They're read once at import,
+- **29, `ROOT`.** `__file__` is `.../HybridBias/scripts/runs.py`. One `dirname` gives `scripts/`, the second gives
+  `HybridBias/`. All paths are built from this, so the scripts work from any directory.
+- **30, `NBODY`.** The solver executable, `../SimulationCode/nbody` next to `HybridBias`.
+- **31, `BASE_PARAMETER_FILE`.** The Lua file every run is copied from: SimulationCode's own `parameterfile.lua`, with
+  its default values and notes on what changed since COLASolver.
+- **34–45, `PROJECT`.** This project's settings for every run, written on top of the base file: box, particles, force
+  grid, steps, and the bias spectra (`hybridbias = true` with the grid, assignment and cut of the old COLASolver runs).
+  Keeping them here, rather than editing the base file, leaves `parameterfile.lua` equal to SimulationCode's, and puts
+  all project choices in one place. A run's own parameters override them (see `run()`).
+- **47, `DRY_RUN`, `PLOT_ONLY`.** True if those flags are anywhere on the command line. They're read once at import,
   so every function sees them without passing them around.
-- **32, `counts`.** A tally of what happened, printed by `summary()`.
+- **48, `counts`.** A tally of what happened, printed by `summary()`.
 
-### Reading the base file (35–51)
+### Reading the base file (51–70)
 
-- **35–38, `base_parameter(name)`.** Finds the parameter's line with a regular expression:
+- **51–57, `base_parameter(name)`.** The value this project uses: from `PROJECT` if it is there (53–54, written as Lua
+  by `lua()` and without quotes), otherwise from the base file. There it finds the parameter's line with a regular
+  expression:
   - `^\s*{name}\s*=\s*` matches the start of the line, optional indentation, the name and `=`.
   - `(.*?)` captures the value lazily, i.e. as short as possible.
   - `\s*(?:--.*)?$` allows trailing spaces and a Lua comment `-- ...`, which are not captured.
   - `re.M` makes `^` and `$` match at every line, not just the start and end of the file.
   - `.group(1)` is the captured value, and `.strip('"')` removes quotes, so `"GR"` becomes `GR`.
   - It always returns a string, e.g. `"1024"` or `"2.215e-9"`.
-- **41–46, `fiducial(name)`.** The same value, converted to a float if possible, otherwise left as text (`"GR"`).
+- **60–65, `fiducial(name)`.** The same value, converted to a float if possible, otherwise left as text (`"GR"`).
   Used for the fiducial values in scans.
-- **49–51, `around_fiducial(name, fractions)`.** For each fraction f it returns fiducial × (1 + f), formatted with
+- **68–70, `around_fiducial(name, fractions)`.** For each fraction f it returns fiducial × (1 + f), formatted with
   `:.6g` (6 significant digits) and turned back into a float. That keeps folder names short and avoids things like
   `0.30000000000000004`.
 
-### Writing Lua (54–62)
+### Writing Lua (73–81)
 
 **`lua(value)`** converts a Python value to Lua syntax for the parameter file.
 - `bool` must be checked first, because `True` is also an `int` in Python. It becomes `true`/`false`.
@@ -51,154 +58,169 @@ the function names still lead to the right place.
 - `list`/`tuple` become `{a, b}`; this calls itself on each element, so nested values work.
 - Everything else (numbers) uses `str()`.
 
-### CLASS input power spectrum (65–132)
+### CLASS input power spectrum (84–151)
 
-- **66, `CLASS`.** The executable path; the environment variable `CLASS` wins if set.
-- **69–79, `LUA_TO_CLASS`.** The one-to-one dictionary from Lua names to CLASS names. `ic_input_redshift → z_pk` makes
+- **85, `CLASS`.** The executable path; the environment variable `CLASS` wins if set.
+- **88–98, `LUA_TO_CLASS`.** The one-to-one dictionary from Lua names to CLASS names. `ic_input_redshift → z_pk` makes
   CLASS output P(k) at the redshift FML expects as input.
-- **81, `LUA_TO_CLASS_W0WA`.** The same mapping plus `w0`/`wa`. `{**A, ...}` copies A and adds keys.
-- **84–90, `neutrinos()`.** Converts FML's neutrino description to CLASS's:
+- **100, `LUA_TO_CLASS_W0WA`.** The same mapping plus `w0`/`wa`. `{**A, ...}` copies A and adds keys.
+- **103–109, `neutrinos()`.** Converts FML's neutrino description to CLASS's:
   - No mass: all of `N_eff` goes into massless species (`N_ur`).
   - Massive: one CLASS species with degeneracy 3 (`deg_ncdm = 3`, three equal masses) and FML's temperature ratio
     `T_ncdm`.
-- **93–132, `write_input_power(parameters, path)`.**
-  - **97–98, `value(name)`.** A small inner function that takes the value from `parameters` if given, otherwise from
+- **112–151, `write_input_power(parameters, path)`.**
+  - **116–117, `value(name)`.** A small inner function that takes the value from `parameters` if given, otherwise from
     the base file. This is the "override, else base file" rule in one line.
-  - **101, `kmax`.** √3 × π N / L, the corner of the IC grid. FML's spline needs P(k) up to there.
-  - **103–109, model check.** Picks the dictionary for the cosmology model. Any `cosmology_*` parameter that CLASS
+  - **120, `kmax`.** √3 × π N / L, the corner of the IC grid. FML's spline needs P(k) up to there.
+  - **122–128, model check.** Picks the dictionary for the cosmology model. Any `cosmology_*` parameter that CLASS
     wouldn't receive counts as `unknown`, and the script stops (`SystemExit`) rather than silently ignoring it.
-  - **111, CLASS parameters.** Builds `{CLASS name: value}` for every mapped parameter.
-  - **112–113, w0waCDM.** Sets `Omega_Lambda = 0` so the fluid replaces Λ.
-  - **114, neutrinos.** Adds the neutrino parameters.
-  - **115–116, ini text.** The CLASS input as text:
+  - **130, CLASS parameters.** Builds `{CLASS name: value}` for every mapped parameter.
+  - **131–132, w0waCDM.** Sets `Omega_Lambda = 0` so the fluid replaces Λ.
+  - **133, neutrinos.** Adds the neutrino parameters.
+  - **134–135, ini text.** The CLASS input as text:
     - `output = mPk` asks for the matter power spectrum.
     - `P_k_max_h/Mpc` is at least 100, and 10% beyond `kmax` if larger.
     - `k_per_decade_for_pk = 32` sets the sampling density.
     - Then one line per parameter.
-  - **117–119, cache.** If the output and an identical saved `_class.ini` already exist, CLASS has already computed
+  - **136–138, cache.** If the output and an identical saved `_class.ini` already exist, CLASS has already computed
     exactly this, so it returns. Comparing the text is simpler and safer than comparing parameter values.
-  - **121–128, running CLASS** inside a temporary folder, deleted automatically after the `with` block:
-    - **121–123:** writes `input.ini` with `root = <tmp>/`. CLASS refuses long output paths, which is why it runs in a
+  - **140–147, running CLASS** inside a temporary folder, deleted automatically after the `with` block:
+    - **140–142:** writes `input.ini` with `root = <tmp>/`. CLASS refuses long output paths, which is why it runs in a
       short temporary folder.
-    - **124:** runs CLASS and captures its output.
-    - **125–126:** on failure, stops and shows the last 2000 characters of CLASS's output.
-    - **127–128:** reads `00_pk_cb.dat` (CDM + baryons) if neutrinos are massive, else `00_pk.dat`. With massless
+    - **143:** runs CLASS and captures its output.
+    - **144–145:** on failure, stops and shows the last 2000 characters of CLASS's output.
+    - **146–147:** reads `00_pk_cb.dat` (CDM + baryons) if neutrinos are massive, else `00_pk.dat`. With massless
       neutrinos those are the same thing, and CLASS doesn't write the `_cb` file.
-  - **129–132, saving.** Writes two columns plus a header, saves the ini text next to it (for the record and the
+  - **148–151, saving.** Writes two columns plus a header, saves the ini text next to it (for the record and the
     cache), and prints.
 
-### Running (135–188)
+### Running (154–220)
 
-- **135–136, `is_finished(folder)`.** A run is finished if `snapshot_TestSim_z0.000/pofk_44.txt` exists. That is the
-  last spectrum written at the last output, z = 0.
-- **139–180, `run(name, ntasks=64, **parameters)`.** `**parameters` collects every `key=value` you pass into a dict.
-  - **142:** the run folder is `results/<name>`.
-  - **143–144:** with `--plot-only`, returns the folder at once, so the run scripts still know every folder.
-  - **145–147:** finished runs are counted as skipped and returned.
-  - **148:** creates the folder.
-  - **149–152, input P(k).** If you changed a cosmology parameter but gave no input file (a direct `run()`), it
+- **154–158, `is_finished(folder)`.** A run is finished if its spectra at z = 0 exist: `hybridbias_z0.000.txt` in
+  `snapshot_TestSim_z0.000/` (SimulationCode writes it at the end of the last output), or `pofk_44.txt` for runs made
+  with COLASolver, which wrote the 15 spectra as separate files. So finished old runs are not rerun.
+- **161–212, `run(name, ntasks=64, **parameters)`.** `**parameters` collects every `key=value` you pass into a dict.
+  - **164:** the run folder is `results/<name>`.
+  - **165–166:** with `--plot-only`, returns the folder at once, so the run scripts still know every folder.
+  - **167–169:** finished runs are counted as skipped and returned.
+  - **170–173, checking the names.** Every parameter (the run's and `PROJECT`'s) must have a line in the base file, otherwise the script stops
+    before creating anything. SimulationCode only warns about an unknown name and runs without it, so an old name
+    such as `pofk_bias_smoothing_scale_hmpc` would otherwise give a run without that setting.
+  - **174:** creates the folder.
+  - **175–178, input P(k).** If you changed a cosmology parameter but gave no input file (a direct `run()`), it
     computes one into the run folder and points FML to it. `scan()` always passes `ic_input_filename`, so it never
     gets here.
-  - **154–156, the parameter file.** Reads the base file and, for every parameter plus `output_folder`, replaces its
-    line:
+  - **180–182, the bias-spectra grid.** COLASolver computed the bias spectra on the grid of the matter spectrum,
+    `pofk_nmesh`. SimulationCode has its own `hybridbias_nmesh`, so changing `pofk_nmesh` also changes it, unless you
+    give `hybridbias_nmesh` yourself. `setdefault` only sets a key that isn't there yet.
+  - **183, `PROJECT`.** `{**PROJECT, **parameters}` merges the two dicts; for a key in both the later one wins, so the
+    run's own values override the project's. This comes after the two steps above, which look only at what the run
+    itself changed (e.g. a `pofk_nmesh` from `PROJECT` doesn't count as a change).
+  - **185–188, the parameter file.** Starts from the base file and, for every parameter plus `output_folder`, replaces
+    its line:
     - `^(\s*){key}\s*=.*$` matches the whole line and captures the indentation.
     - `\g<1>` puts the indentation back.
-    - `{key} = {lua(value)}` writes the new value.
-    - A parameter that isn't in the file is never matched, so it is silently ignored.
-  - **157–158:** saves it as `results/<name>/parameterfile.lua`.
-  - **160:** the command, `mpirun -np 64 nbody <file>`.
-  - **161–164:** counts the run; with `--dry-run`, prints the command and stops here.
-  - **165–169, log link.** Prints the start and replaces the symlink `results/<campaign>/current_log.txt` with one
+    - `{key} = {lua(value)}` writes the new value. The comment at the end of the line (the SimulationCode default)
+      goes with the old value.
+    - A parameter inside several `if` blocks (e.g. `gravity_model_screening`) is replaced in all of them.
+  - **189–190:** saves it as `results/<name>/parameterfile.lua`.
+  - **192:** the command, `mpirun -np 64 nbody <file>`.
+  - **193–196:** counts the run; with `--dry-run`, prints the command and stops here.
+  - **197–201, log link.** Prints the start and replaces the symlink `results/<campaign>/current_log.txt` with one
     pointing at this run's log. `lexists` also catches a broken old link.
-  - **171, environment.**
+  - **202–203, environment.**
     - Threads per task = hardware threads ÷ tasks: 128/64 = 2 on euclid22.
     - `I_MPI_PIN_DOMAIN=omp` pins each task to its own cores.
     - `**os.environ` comes last, so your own settings win.
-  - **172–174, running.** Runs the solver from `ROOT`, because the base file has relative input paths, and writes all
+  - **204–206, running.** Runs the solver from `ROOT`, because the base file has relative input paths, and writes all
     its output to `log.txt`.
-  - **175–180, checking.** Checks the result with `is_finished` rather than the exit code, since MPI exit codes are
+  - **207–212, checking.** Checks the result with `is_finished` rather than the exit code, since MPI exit codes are
     unreliable. Prints the time, or an error, and returns the folder.
-- **183–188, `summary()`.** Prints the tally, except with `--plot-only`, when nothing was attempted. With `--dry-run`
+- **215–220, `summary()`.** Prints the tally, except with `--plot-only`, when nothing was attempted. With `--dry-run`
   it ends the script (`sys.exit()`), so no figures are made from runs that don't exist.
 
-### Helpers for campaigns (191–207)
+### Helpers for campaigns (223–239)
 
-- **191–195, `gravity_parameters(model)`.** `"GR"` gives `{gravity_model: "GR"}`. `"F5"` gives `f(R)` with
+- **223–227, `gravity_parameters(model)`.** `"GR"` gives `{gravity_model: "GR"}`. `"F5"` gives `f(R)` with
   `fofr0 = 10^-5`, where `int(model[1:])` is the number after the F.
-- **198–207, `steps_per_interval(nsteps, redshifts)`.** COLASolver needs one step count per interval between outputs.
-  - **202:** the scale factors: initial, then each output.
-  - **203:** the exact share of each interval, nsteps × Δa / (1 − a_ini), in proportion to the change in a.
-  - **204:** rounds each down.
-  - **205–206:** the missing steps go one each to the intervals with the largest fractional remainders, so the total
+- **230–239, `steps_per_interval(nsteps, redshifts)`.** SimulationCode needs one step count per interval between outputs.
+  - **234:** the scale factors: initial, then each output.
+  - **235:** the exact share of each interval, nsteps × Δa / (1 − a_ini), in proportion to the change in a.
+  - **236:** rounds each down.
+  - **237–238:** the missing steps go one each to the intervals with the largest fractional remainders, so the total
     is exactly nsteps. For 30 steps at z = 2, 1, 0.5, 0 this gives {9, 5, 5, 11}.
 
-### Scans (210–270)
+### Scans (242–307)
 
-- **210–225, `Run` and `Scan`.** `@dataclass` makes simple record classes with named fields.
+- **242–257, `Run` and `Scan`.** `@dataclass` makes simple record classes with named fields.
   - `Run`: one simulation's folder, varied values, gravity model, seed and phase.
   - `Scan`: everything the figures need.
-- **228–229, `short()`.** Removes the `cosmology_` prefix for folder names and labels.
-- **232–270, `scan(...)`.**
-  - **243:** `list(dict)` gives its keys, the names of the varied parameters.
-  - **244–245, `vary`.** `itertools.product` gives every combination, e.g. 2 × 3 values → 6 tuples. There's no
+- **260–266, `FOLDER_NAMES` and `short()`.** The name of a parameter in folder names and labels: without the
+  `cosmology_` prefix, and for parameters SimulationCode renamed, the old COLASolver name
+  (`hybridbias_smoothing_scale` → `pofk_bias_smoothing_scale_hmpc`), so the folders of finished runs still match.
+- **269–307, `scan(...)`.**
+  - **280:** `list(dict)` gives its keys, the names of the varied parameters.
+  - **281–282, `vary`.** `itertools.product` gives every combination, e.g. 2 × 3 values → 6 tuples. There's no
     fiducial.
-  - **246–249, `one_at_a_time`.**
+  - **283–286, `one_at_a_time`.**
     - The reference tuple holds each parameter's fiducial value, from `fixed` if given, else the base file.
     - Points: the reference first, then for each parameter i and each of its values, the reference with position i
       replaced. `reference[:i] + (value,) + reference[i+1:]` builds that tuple.
     - Values equal to the fiducial are skipped, to avoid a duplicate fiducial run.
-  - **250:** with `gravity=["F5"]` the models are `["GR", "F5"]`; without it, `[None]`, meaning use the base file's
+  - **287:** with `gravity=["F5"]` the models are `["GR", "F5"]`; without it, `[None]`, meaning use the base file's
     model.
-  - **252–268, the main loop over points.**
-    - **253, `changed`.** The parameters that differ from the reference. With `vary` there is no reference, so
+  - **289–305, the main loop over points.**
+    - **290, `changed`.** The parameters that differ from the reference. With `vary` there is no reference, so
       everything counts as changed.
-    - **254, `settings`.** `fixed` overridden by this point's values.
-    - **255–260, input P(k).** If any cosmology parameter is involved, it computes one per cosmology:
+    - **291, `settings`.** `fixed` overridden by this point's values.
+    - **292–297, input P(k).** If any cosmology parameter is involved, it computes one per cosmology:
       - The file name uses only the changed cosmology parameters (`pofk_h0.7006.txt`, or `pofk_fiducial.txt`).
       - Runs differing only in gravity, seed or phase share it, and the cache in `write_input_power` stops
         recomputation.
       - With `--plot-only` CLASS isn't run, but the path is still set, so the parameters (and thus folder names) stay
         consistent.
-    - **261, folder label.** E.g. `OmegaCDM0.2295_h0.7`, or `fiducial`.
-    - **262–263, gravity settings.** For each model, its parameters plus `ic_use_gravity_model_GR = True`, so all
+    - **298, folder label.** E.g. `OmegaCDM0.2295_h0.7`, or `fiducial`.
+    - **299–300, gravity settings.** For each model, its parameters plus `ic_use_gravity_model_GR = True`, so all
       models start from identical initial conditions.
-    - **264–268, runs.** For each seed (default: the base file's) and phase, calls `run()` with:
+    - **301–305, runs.** For each seed (default: the base file's) and phase, calls `run()` with:
       - name `scans/<scan>/<label>_<model>_seed<seed>_<phase>`;
       - all the settings;
       - the seed;
       - `ic_reverse_phases = (phase == "reversed")`.
 
       Then records a `Run`.
-  - **269–270:** prints the tally and returns the `Scan`.
+  - **306–307:** prints the tally and returns the `Scan`.
 
-### Command line (273–286)
+### Command line (310–323)
 
 `if __name__ == "__main__"` runs only when you execute `python3 runs.py`, not when another script imports it.
-- **274–281, `parse()`.**
+- **311–318, `parse()`.**
   - Turns `true`/`false` into booleans.
   - `ast.literal_eval` safely turns `1024`, `0.7` and `[1.0, 0.0]` into Python values.
   - Anything that isn't a Python literal, such as `f(R)`, stays a string.
-- **283:** drops the `--` flags, then takes the first argument as the run name and the rest as assignments.
-- **284:** `"key=value".split("=", 1)` splits at the first `=` only, giving the dict of parameters.
-- **285–286:** runs and summarises. `ntasks=128` works too, because it matches `run()`'s own argument.
+- **320:** drops the `--` flags, then takes the first argument as the run name and the rest as assignments.
+- **321:** `"key=value".split("=", 1)` splits at the first `=` only, giving the dict of parameters.
+- **322–323:** runs and summarises. `ntasks=128` works too, because it matches `run()`'s own argument.
 
 ---
 
 ## 2. [spectra.py](scripts/spectra.py): loads and combines spectra (no plotting)
 
-- **1–14, docstring.** Defines the two data formats used everywhere:
+- **1–16, docstring.** Defines the two data formats used everywhere:
   - **curve:** a dict holding `k`, `P` with shape [15, nk] (all 15 spectra stacked), an optional `error`, and a
     `label`.
   - **figure:** a dict holding a title, curves (either `{values: curve}` with parameter `names`, or a plain list) and
     plot options.
-- **24, `PAIRS`.** The 15 (i, j) with i ≤ j in file order: (0,0), (0,1) … (4,4). `P[p]` is spectrum `PAIRS[p]`.
-- **25, `NAMES`.** The LaTeX names of the 5 fields, for panel titles.
-- **28–35, `load_run(folder, z)`.**
+- **26, `PAIRS`.** The 15 (i, j) with i ≤ j in file order: (0,0), (0,1) … (4,4). `P[p]` is spectrum `PAIRS[p]`.
+- **27, `NAMES`.** The LaTeX names of the 5 fields, for panel titles.
+- **30–43, `load_run(folder, z)`.**
   - `lru_cache` remembers every result, so a run used in several figures is read only once.
-  - Finds `snapshot_*_z0.000`; if there's no such output, or it isn't complete (no `pofk_44.txt`), returns
-    `(None, None)`.
-  - Otherwise reads the 15 files. k is the first column of the first file; `P` stacks the second columns into a
-    [15, nk] array.
+  - Finds `snapshot_*_z0.000`; if there's no such output it returns `(None, None)`.
+  - SimulationCode runs: reads `hybridbias_z0.000.txt`, whose columns are k, the number of modes, the 15 spectra in
+    `PAIRS` order, and the linear P_cb(k). `data[:, 2:17].T` turns the 15 spectrum columns into a [15, nk] array.
+  - COLASolver runs (before November 2026): reads the 15 files `pofk_ij.txt`. k is the first column of the first
+    file; `P` stacks the second columns into a [15, nk] array.
+  - If neither is there (the run hasn't finished), `(None, None)`.
 - **38–41, `redshifts(folders)`.**
   - Collects all snapshot folder names of these runs.
   - `rsplit("_z", 1)[1]` takes the text after the last `_z`, e.g. `0.500`, as a float.

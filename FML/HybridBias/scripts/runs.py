@@ -1,4 +1,4 @@
-"""Run COLASolver with parameterfile.lua, changing any of its parameters.
+"""Run FML/SimulationCode with parameterfile.lua, changing any of its parameters.
 
 From the command line, one run in results/<folder>/ (lists as Python lists, true/false as True/False):
     python3 scripts/runs.py tests/mesh1024 pofk_nmesh=1024 cosmology_h=0.7 [ntasks=64] [--dry-run]
@@ -11,6 +11,7 @@ Finished runs are skipped, so a script can be restarted or extended. Options for
     --dry-run     only write the parameter files and print the commands, no figures
     --plot-only   run nothing, only make the figures from the runs that have finished
 Changing cosmology_* parameters also computes the input P(k) with CLASS (write_input_power below).
+Runs made with COLASolver before the switch (15 pofk_ij.txt files) count as finished and are read as before.
 """
 import ast
 import itertools
@@ -26,14 +27,33 @@ import numpy as np
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # The HybridBias folder
-NBODY = os.path.join(os.path.dirname(ROOT), "COLASolver", "nbody")
-BASE_PARAMETER_FILE = os.path.join(ROOT, "parameterfile.lua")
+# The solver; another build (e.g. single precision) with the environment variable NBODY
+NBODY = os.environ.get("NBODY", os.path.join(os.path.dirname(ROOT), "SimulationCode", "nbody"))
+BASE_PARAMETER_FILE = os.path.join(ROOT, "parameterfile.lua")  # SimulationCode's own, with notes on the changes
+# The settings of this project for every run, on top of BASE_PARAMETER_FILE (whose values are the SimulationCode
+# defaults); a run's own parameters override these. The values are those of the COLASolver runs before November 2026
+PROJECT = {
+    "simulation_boxsize": 1024.0,
+    "particle_Npart_1D": 1024,
+    "force_nmesh": 1024,  # = particle_Npart_1D; see the README on a finer force grid
+    "timestep_nsteps": [30],
+    "output_particles": False,
+    "pofk_nmesh": 1024,
+    "ic_input_filename": "../SimulationCode/input/example_power_spectrum_cb_z0.000.txt",  # Relative to ROOT
+    "hybridbias": True,
+    "hybridbias_nmesh": 1024,  # The bias spectra on the grid of the matter spectrum, as COLASolver did
+    "hybridbias_density_assignment_method": "PCS",
+    "hybridbias_kcut_over_nyquist": 0.0,  # No cut, as COLASolver; > 0 (e.g. 1.0) for the predictions and the control variate
+}
 DRY_RUN, PLOT_ONLY = "--dry-run" in sys.argv, "--plot-only" in sys.argv
 counts = {"run": 0, "already finished": 0, "failed": 0}
 
 
 def base_parameter(name):
-    """The value of a parameter in parameterfile.lua, as a string without quotes and trailing -- comment."""
+    """The value of a parameter for this project (PROJECT, else parameterfile.lua), as a string without quotes and
+    trailing -- comment."""
+    if name in PROJECT:
+        return lua(PROJECT[name]).strip('"')
     value = re.search(rf"^\s*{name}\s*=\s*(.*?)\s*(?:--.*)?$", open(BASE_PARAMETER_FILE).read(), re.M).group(1)
     return value.strip('"')
 
@@ -82,7 +102,7 @@ LUA_TO_CLASS_W0WA = {**LUA_TO_CLASS, "cosmology_w0": "w0_fld", "cosmology_wa": "
 
 
 def neutrinos(Neffective, OmegaMNu):
-    """CLASS neutrino parameters for COLASolver's neutrinos: 3 species with temperature
+    """CLASS neutrino parameters for SimulationCode's neutrinos: 3 species with temperature
     T_CMB (N_eff / 3)^(1/4) (4/11)^(1/3), sharing the mass that gives OmegaMNu."""
     if OmegaMNu == 0:
         return {"N_ur": Neffective}
@@ -133,26 +153,39 @@ def write_input_power(parameters, path):
 
 
 def is_finished(folder):
-    return os.path.exists(os.path.join(folder, "snapshot_TestSim_z0.000", "pofk_44.txt"))
+    """The spectra at z = 0 exist: hybridbias_z0.000.txt (SimulationCode), or pofk_44.txt (runs made with COLASolver,
+    which wrote one file per spectrum)."""
+    snapshot = os.path.join(folder, "snapshot_TestSim_z0.000")
+    return any(os.path.exists(os.path.join(snapshot, f)) for f in ("hybridbias_z0.000.txt", "pofk_44.txt"))
 
 
 def run(name, ntasks=64, **parameters):
-    """Run parameterfile.lua with these parameters changed in results/<name>/, unless it has finished. Returns the
-    folder."""
+    """Run parameterfile.lua with PROJECT and these parameters changed in results/<name>/, unless it has finished.
+    Returns the folder."""
     folder = os.path.join(ROOT, "results", name)
     if PLOT_ONLY:
         return folder
     if is_finished(folder):
         counts["already finished"] += 1
         return folder
+    base = open(BASE_PARAMETER_FILE).read()
+    for key in {**PROJECT, **parameters}:  # SimulationCode only warns about unknown parameters and runs without them
+        if not re.search(rf"^\s*{key}\s*=", base, flags=re.M):
+            raise SystemExit(f"{key} is not in {BASE_PARAMETER_FILE} (a misspelt or old parameter name?)")
     os.makedirs(folder, exist_ok=True)
     if any(p.startswith("cosmology_") for p in parameters) and "ic_input_filename" not in parameters:
         input_file = os.path.join(folder, "input_power.txt")
         write_input_power(parameters, input_file)
         parameters.update(ic_type_of_input="powerspectrum", ic_input_filename=input_file)
 
-    text = open(BASE_PARAMETER_FILE).read()
+    # COLASolver made the bias spectra on the grid of the matter spectrum; SimulationCode has its own hybridbias_nmesh
+    if "pofk_nmesh" in parameters:
+        parameters.setdefault("hybridbias_nmesh", parameters["pofk_nmesh"])
+    parameters = {**PROJECT, **parameters}  # The run's own parameters win
+
+    text = base
     for key, value in {**parameters, "output_folder": folder}.items():
+        # The comment at the end of the line (the SimulationCode default) is dropped with the old value
         text = re.sub(rf"^(\s*){key}\s*=.*$", rf"\g<1>{key} = {lua(value)}", text, flags=re.M)
     parameter_file = os.path.join(folder, "parameterfile.lua")
     open(parameter_file, "w").write(text)
@@ -225,8 +258,13 @@ class Scan:
     runs: list
 
 
+# Parameters renamed in SimulationCode keep their COLASolver name in the run folders, so finished runs are still found
+FOLDER_NAMES = {"hybridbias_smoothing_scale": "pofk_bias_smoothing_scale_hmpc"}
+
+
 def short(name):
-    return name.removeprefix("cosmology_")
+    """The name of a parameter in run folders and figure labels."""
+    return FOLDER_NAMES.get(name, name).removeprefix("cosmology_")
 
 
 def scan(name, vary=None, one_at_a_time=None, fixed={}, gravity=None, seeds=None, phases=("normal", "reversed"),

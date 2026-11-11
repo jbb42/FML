@@ -1,9 +1,26 @@
--- Base parameter file for FML/SimulationCode (from upstream/FMLDevelop), made from
--- FML/SimulationCode/parameterfile.lua with the dev defaults kept. Where your old COLASolver
--- parameterfile.lua (params/parameterfile_colasolver.lua) had another value, it is given
--- as '-- yours: <value>' at the end of the line. Parameters you had that no longer exist:
---   gravity_model_geff_geffofa_filename = "GeffoverG_of_a.txt"
---   ic_type_of_input_fileformat = "CAMB"
+-- FML/SimulationCode/parameterfile.lua from upstream FMLDevelop (HAWinther/FML), the values unchanged.
+-- Comments at the end of a line give the value of the old COLASolver parameter file of this project
+-- (params/parameterfile_colasolver.lua, "yours: ...") and why it changed. The settings this project uses for every
+-- run (box, particles, steps, the bias spectra) are in scripts/runs.py PROJECT, so this file stays the SimulationCode
+-- default and the project choices are in one place.
+--
+-- What changed between COLASolver (this project until November 2026) and SimulationCode, and the effect:
+-- * The bias spectra are SimulationCode's hybridbias_* (FML/ComputePowerSpectra/HybridBiasSpectra.h) instead of
+--   LagrangianBias.h: the same operators, growth scaling and spectra. With the old settings (no cut, the same grid and
+--   assignment) the 15 spectra agree to ~1e-4 (nabla^2 delta_L to ~1e-3), same seed, force_nmesh = particle_Npart_1D.
+--   Output: one file snapshot_*/hybridbias_z<z>.txt (k, number of modes, the 15 spectra, P_cb linear) instead of 15
+--   pofk_ij.txt files.
+-- * Force grid finer than the particle grid: the lattice offset and finite-difference gradient below are new defaults
+--   (P(k) +10% -> ~1% at k = 0.2 h/Mpc on a 2x grid). Old runs with force_nmesh > particle_Npart_1D can't be
+--   reproduced exactly (0.2% in the matter spectrum, 1.5% in nabla^2 delta_L even with the old settings).
+-- * f(R): the background curvature R(a) comes from the background (COLASolver used LCDM's), which changes f(R) on a
+--   w0waCDM background; GR and LCDM are unchanged.
+-- * gravity_model = "Geff" is now "mu" (DE: mu = 1 + mu0 Omega_DE(a)/Omega_DE0, BZ, or a table).
+-- * Removed: ic_type_of_input_fileformat (the columns are detected), gravity_model_geff_geffofa_filename,
+--   pofk_bias_smoothing_scale_hmpc / _filter (now hybridbias_smoothing_scale / _filter).
+-- * Many smaller fixes: the growth factors start from the radiation-era growing mode, the Nyquist modes of the LPT
+--   and force gradients, COLA velocities with ic_use_gravity_model_GR in modified gravity (FML/CHANGELOG.md);
+--   < 1e-3 in P(k) for this project's runs.
 
 ------------------------------------------------------------
 -- Simulation parameter file
@@ -28,7 +45,7 @@ all_parameters_must_be_in_file = true
 -- Label
 simulation_name = "TestSim"
 -- Boxsize of simulation in Mpc/h
-simulation_boxsize = 512.0  -- yours: 1024.0
+simulation_boxsize = 512.0  -- yours: 1024.0 (project setting, set for every run in scripts/runs.py PROJECT)
 
 ------------------------------------------------------------
 -- COLA
@@ -43,9 +60,9 @@ simulation_use_scaledependent_cola = false
 -- or exhaustive (time the candidate algorithms: faster transforms, slower start).
 -- The plans made are written to fftw_wisdom_[simulation_name].txt in the
 -- output folder: give that file below to skip the planning in later runs
-simulation_fftw_planner = "estimate"  -- new in SimulationCode (not in your file)
+simulation_fftw_planner = "estimate"
 -- FFTW wisdom (plans) to read at the start ("" = none)
-simulation_fftw_wisdom_file = ""  -- new in SimulationCode (not in your file)
+simulation_fftw_wisdom_file = ""
 -- Let the particles follow the LPT trajectories during the simulation
 -- i.e. we do not compute any forces
 -- NB: for normal simulations make sure this is set to false
@@ -70,7 +87,7 @@ cosmology_Omegab = 0.049
 cosmology_OmegaMNu = 0.0
 -- Or the masses of the (up to 3) neutrinos in eV, e.g. {0.0, 0.0086, 0.05} (instead of cosmology_OmegaMNu,
 -- which must then be 0; 0 or not listed: massless). Empty: 3 equal masses from cosmology_OmegaMNu
-cosmology_neutrino_masses_eV = {}  -- new in SimulationCode (not in your file)
+cosmology_neutrino_masses_eV = {}  -- new and required (with all_parameters_must_be_in_file = true); {} = equal masses from cosmology_OmegaMNu as before
 -- Curvature parameter (-k/H0^2)
 cosmology_OmegaK = 0.0
 -- Effective number of relativistic species
@@ -226,7 +243,7 @@ if gravity_model == "f(R)" then
   -- Options for the multigrid solver in case we solve exact equation:
   multigrid_solver_residual_convergence = 1e-7
   -- How many Newton-Gauss-Seidel sweeps to do every level
-  multigrid_nsweeps = 3  -- yours: 5
+  multigrid_nsweeps = 3  -- yours: 5 (2 for DGP). Default was 10 in COLASolver, now 3; only used by the exact (multigrid) solvers, which this project doesn't use
   -- In some cases the multigrid solver fails if we are not close to the
   -- solution before starting multigrid. Increase this if so
   multigrid_nsweeps_first_step = 5
@@ -262,7 +279,7 @@ if gravity_model == "Symmetron" then
   -- Options for the multigrid solver in case we solve exact equation:
   multigrid_solver_residual_convergence = 1e-7
   -- How many Newton-Gauss-Seidel sweeps to do every level
-  multigrid_nsweeps = 3  -- yours: 5
+  multigrid_nsweeps = 3
   -- In some cases the multigrid solver fails if we are not close to the
   -- solution before starting multigrid. Increase this if so
   multigrid_nsweeps_first_step = 5
@@ -319,7 +336,7 @@ if gravity_model == "DGP" then
   gravity_model_dgp_smoothing_filter = "tophat"
   -- For screening approx: smoothing scale R/boxsize (0: no smoothing; 1 smooths over the whole box,
   -- which makes the screening very weak), e.g. 1.0 / simulation_boxsize for R = 1 Mpc/h
-  gravity_model_dgp_smoothing_scale_over_boxsize = 0.0  -- yours: 0.0 / simulation_boxsize
+  gravity_model_dgp_smoothing_scale_over_boxsize = 0.0
   -- Combine screened solution with linear solution to enforce correct
   -- linear evolution on large scales
   gravity_model_screening_enforce_largescale_linear = true
@@ -361,28 +378,28 @@ end
 -- Particles
 ------------------------------------------------------------
 -- Number of CDM+b particles per dimension
-particle_Npart_1D = 128  -- yours: 1024
+particle_Npart_1D = 128  -- yours: 1024 (project setting, set for every run in scripts/runs.py PROJECT)
 -- Factor of how many more particles to allocate space
 particle_allocation_factor = 1.25
 -- Reorder the particles in memory by position every this many steps (faster density assignment and
 -- force interpolation once the particles have moved far from the lattice; 0: never)
-particle_sort_every_nsteps = 0  -- new in SimulationCode (not in your file)
+particle_sort_every_nsteps = 0
 -- CDM and baryons as two sets of particles (particle_Npart_1D^3 of each)? Needs ic_type_of_input = camb, class, internal or tables
-particle_baryons = false  -- new in SimulationCode (not in your file)
+particle_baryons = false
 -- Start the baryons from the same lattice as the CDM (same, recommended) or offset by half a particle spacing (offset)
-particle_baryon_lattice = "same"  -- new in SimulationCode (not in your file)
+particle_baryon_lattice = "same"
 -- How the baryon-CDM relative density is set up: displacement (each species displaced by its own linear field),
 -- mass (common displacements and velocities, the relative mode in the particle masses; exact at z = 0 in linear
 -- theory) or mass_ini (common displacements, masses from zini, own velocities). The mass modes need lattice = same
-particle_baryon_relative_mode = "displacement"  -- new in SimulationCode (not in your file)
+particle_baryon_relative_mode = "displacement"
 -- Massive neutrinos as particles with the delta-f method? Needs massive neutrinos, ic_type_of_input = camb, class, internal or tables
 -- (accurate neutrino transfer functions up to zini, see scripts/make_camb_transfer_tables.py), timestep_method = Quinn
 -- and force_linear_massive_neutrinos = false
-particle_neutrinos = false  -- new in SimulationCode (not in your file)
+particle_neutrinos = false
 -- Number of neutrino particles per dimension (0: particle_Npart_1D)
-particle_neutrino_Npart_1D = 0  -- new in SimulationCode (not in your file)
+particle_neutrino_Npart_1D = 0
 -- Use the delta-f weights (false: plain particles, much noisier)
-particle_neutrino_deltaf = true  -- new in SimulationCode (not in your file)
+particle_neutrino_deltaf = true
 
 ------------------------------------------------------------
 -- Output
@@ -390,7 +407,7 @@ particle_neutrino_deltaf = true  -- new in SimulationCode (not in your file)
 -- List of output redshifts
 output_redshifts = {0.0}
 -- Output particles?
-output_particles = true  -- yours: false
+output_particles = true  -- yours: false (project setting, set for every run in scripts/runs.py PROJECT)
 -- Fileformat: GADGET (binary), HDF5 (GADGET HDF5, compile with USE_HDF5=true)
 output_fileformat = "GADGET"
 -- Output folder
@@ -401,7 +418,7 @@ output_folder = "output"
 ------------------------------------------------------------
 -- Number of steps between the outputs (in output_redshifts). 
 -- If only one number in the list then its the total number of steps 
-timestep_nsteps = {10}  -- yours: {30}
+timestep_nsteps = {10}  -- yours: {30} (project setting, set for every run in scripts/runs.py PROJECT)
 -- The time-stepping method: Quinn, Tassev (for COLA), FastPM or BullFrog (not with COLA)
 -- FastPM and BullFrog need far fewer steps than Quinn when not using COLA
 timestep_method = "Quinn"
@@ -425,7 +442,7 @@ ic_random_seed = 1234
 -- The random generator: MT19937 (the default) or GSL (gsl_rng_ranlxd1 as used in 2LPTic, for comparisons)
 ic_random_generator = "GSL"
 -- Fourier mode sampling: ngenic (the legacy line seeds, the same IC as before) or philox (independent mode counters)
-ic_random_field_backend = "ngenic"  -- new in SimulationCode (not in your file)
+ic_random_field_backend = "ngenic"  -- new; ngenic is the old random field, so the same seed gives the same initial conditions as COLASolver
 -- Fix amplitude when generating the gaussian random field
 ic_fix_amplitude = true
 -- Mirror the phases (for amplitude-fixed simulations)
@@ -438,7 +455,7 @@ ic_random_field_type = "gaussian"
 ic_nmesh = particle_Npart_1D
 -- Offset of the particle lattice from the force grid nodes: fiducial (half a force-grid cell if
 -- force_nmesh > particle_Npart_1D, see README), none, half_force_cell
-ic_lattice_offset = "fiducial"  -- yours: "none" (COLASolver never offset the lattice; fiducial offsets it only when force_nmesh > particle_Npart_1D)
+ic_lattice_offset = "fiducial"  -- new. COLASolver never offset the lattice (= "none"). fiducial moves it by half a force cell when force_nmesh > particle_Npart_1D: particles on the force-grid nodes give spurious forces from the lattice (README); no effect when force_nmesh = particle_Npart_1D
 -- For MG: input LCDM P(k) and use GR to scale back and ensure same IC as for LCDM
 -- ONLY use this if you don't have the P(k) for the MG model or if you want to consider PMG/PLCDM run with same IC at high z
 ic_use_gravity_model_GR = false
@@ -456,14 +473,14 @@ ic_LPT_order = 2
 --                   ./nbody --write-transfers parameterfile.lua file (with ic_type_of_input = "internal" in it);
 --                   checked against the cosmology here. The tests use input/transfer_tables)
 ic_type_of_input = "powerspectrum"
-ic_input_gauge = "synchronous" -- class: the gauge CLASS was run in (synchronous or newtonian; converted to CDM-synchronous)  -- new in SimulationCode (not in your file)
+ic_input_gauge = "synchronous" -- class: the gauge CLASS was run in (synchronous or newtonian; converted to CDM-synchronous)
 -- internal: settings of the solver as "name=value", e.g. {"Yp=0.245", "z_reion=8", "precision=fast"}
 -- (not the cosmology or the k-range, which are the simulation's; see README.md)
-ic_internal_solver_parameters = {}  -- new in SimulationCode (not in your file)
+ic_internal_solver_parameters = {}
 -- Path to the input (NB: for using the example files update the path at the top of the file below;
 -- internal: an optional .ini file of the solver, "" for its defaults (internal_solver_default.ini lists the
 -- settings that are yours, with their defaults: copy it and change what you need); tables: the file)
-ic_input_filename = "input/example_power_spectrum_cb_z0.000.txt"  -- yours: "../COLASolver/input/example_power_spectrum_cb_z0.000.txt"
+ic_input_filename = "input/example_power_spectrum_cb_z0.000.txt"  -- yours: "../COLASolver/input/example_power_spectrum_cb_z0.000.txt". The same file is now in ../SimulationCode/input/ (runs.py PROJECT points there; scans replace it with a CLASS P(k) per cosmology)
 -- The redshift of the P(k), T(k) we give as input
 ic_input_redshift = 0.0
 -- The initial redshift of the simulation
@@ -516,7 +533,7 @@ end
 -- Force calculation
 ------------------------------------------------------------
 -- Grid to use for computing PM forces
-force_nmesh = 128  -- yours: 1024
+force_nmesh = 128  -- yours: 1024 (project setting, set for every run in scripts/runs.py PROJECT). See the README: a 2-3x finer force grid than the particle grid is more accurate, in particular for the advected delta_L
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS
 force_density_assignment_method = "CIC"
 -- The kernel to use for D^2 when solving the Poisson equation
@@ -525,11 +542,11 @@ force_greens_function_kernel = "fiducial"
 -- The kernel to use for D when computing forces (with fourier)
 -- Options: fiducial (= continuous; discrete_4pt if particle_Npart_1D < force_nmesh <= 3 particle_Npart_1D;
 --          discrete_2pt for finer grids), continuous, discrete_2pt, discrete_4pt
-force_gradient_kernel = "fiducial"  -- yours: "fiducial", which in COLASolver always meant "continuous"; in SimulationCode it means discrete_4pt (force_nmesh <= 3 Npart_1D) or discrete_2pt when force_nmesh > particle_Npart_1D
+force_gradient_kernel = "fiducial"  -- yours: "fiducial", which in COLASolver always meant continuous. Now fiducial means discrete_4pt (force_nmesh <= 3 particle_Npart_1D) or discrete_2pt (finer) when the force grid is finer than the particle grid, continuous otherwise. The continuous kernel on a 2x grid gives P(k) +10% at k = 0.2 h/Mpc (README); no effect when force_nmesh = particle_Npart_1D
 -- Experimental: how the density for the force is computed: assignment (default), nufft (exact Fourier
 -- modes, no window/aliasing; then the force is also evaluated exactly at the particles), sheet or
 -- sheet_nufft (spectral sheet interpolation with force_sheet_refinement^3 tracers per particle). See README
-force_density_method = "assignment"  -- new in SimulationCode (not in your file)
+force_density_method = "assignment"
 if force_density_method == "sheet" or force_density_method == "sheet_nufft" then
   -- The number of tracers per particle per dimension
   force_sheet_refinement = 2
@@ -537,14 +554,14 @@ end
 -- How the force is interpolated to the particles: assignment (the force_density_assignment_method kernel),
 -- nufft (exact evaluation of the Fourier series at the particles) or fiducial (nufft if force_density_method =
 -- nufft, otherwise assignment)
-force_interpolation_method = "fiducial"  -- new in SimulationCode (not in your file)
+force_interpolation_method = "fiducial"
 -- Experimental: force interlacing (average the force over this many shifted grids; 1 = off) and deconvolution
 -- of the assignment window W(k)^2 (only stable with interlacing). See README
-force_interlacing_order = 1  -- new in SimulationCode (not in your file)
-force_deconvolve_window = false  -- new in SimulationCode (not in your file)
+force_interlacing_order = 1
+force_deconvolve_window = false
 -- Experimental: a more accurate force at early times (nufft or interlaced) for z > force_early_until_redshift
 -- (only for force_nmesh = particle_Npart_1D). See README
-force_early_method = "none"  -- new in SimulationCode (not in your file)
+force_early_method = "none"
 if force_early_method == "nufft" or force_early_method == "interlaced" then
   force_early_until_redshift = 10.0
 end
@@ -555,7 +572,7 @@ if force_early_method == "interlaced" then
 end
 -- Relative accuracy of the NUFFT (used by force_density_method = nufft or sheet_nufft,
 -- force_interpolation_method = nufft or force_early_method = nufft)
-force_nufft_epsilon = 1e-5  -- new in SimulationCode (not in your file)
+force_nufft_epsilon = 1e-5
 -- Include the effects of massive neutrinos when computing
 -- the density field (density of mnu is the linear prediction)
 -- Requires: ic_type_of_input = camb, class, internal or tables above (we need all T(k,z)); not used without
@@ -563,7 +580,7 @@ force_nufft_epsilon = 1e-5  -- new in SimulationCode (not in your file)
 force_linear_massive_neutrinos = true
 -- Source the Poisson equation with the energy density of the massive neutrinos instead of their mass
 -- density (f_nu <E/m>(a) delta_nu; matters at high redshift for light neutrinos)
-force_neutrino_energy_density = false  -- new in SimulationCode (not in your file)
+force_neutrino_energy_density = false
 
 -- Run in the N-body gauge (Fidler et al. 2015, 2016): add the linear source from photons,
 -- massless and massive neutrinos and GR to the density field. This makes the simulation
@@ -575,7 +592,7 @@ force_neutrino_energy_density = false  -- new in SimulationCode (not in your fil
 -- which prints the lines to use (the N-body gauge transfer functions, ic_input_redshift =
 -- ic_initial_redshift, and the table force_nbody_gauge_filename; LCDM only).
 -- Replaces force_linear_massive_neutrinos
-force_nbody_gauge = false  -- new in SimulationCode (not in your file)
+force_nbody_gauge = false
 if force_nbody_gauge and ic_type_of_input == "camb" then
   force_nbody_gauge_filename = "nbgauge_input/nbgauge_extra.txt"
 end
@@ -595,7 +612,7 @@ force_finite_difference_stencil_order = 4
 -- N-body gauge source. See SHORT_RANGE.md and COLA_SHORT_RANGE.md for scope/tests.
 -- GravityModel supplies the coupling and comoving range (zero means infinite range).
 -- For modified gravity disable screening and any exact nonlinear solver.
-force_short_range = false  -- new in SimulationCode (not in your file)
+force_short_range = false
 if force_short_range then
   -- cell: P3M cell lists; tree: monopole TreePM
   force_short_range_backend = "cell"
@@ -648,7 +665,7 @@ if lightcone then
 
   -- Make delta(z, theta) maps? This is Healpix maps in 3D (needs USE_HEALPIX=true) where we always use the
   -- RING scheme for the maps. For 2D we use output textfiles with the binning
-  plc_make_onion_density_maps = false  -- yours: true
+  plc_make_onion_density_maps = false  -- yours: true (only used with lightcone = true)
   if plc_make_onion_density_maps then
     -- Roughly the size of the size of the bins you want in a
     -- The exact value we use will depend on the time-steps (but not bigger than 2x this value)
@@ -685,15 +702,15 @@ fof_nmesh_max = 0
 -- The size of the buffer region (larger than the largest halo; 2-3 Mpc/h should be fine)
 fof_buffer_length_mpch = 3.0
 -- The halo catalogue halos_z<z>.txt (ascii) or halos_z<z>.hdf5 (HDF5, needs USE_HDF5=true)
-fof_output_fileformat = "ascii"  -- new in SimulationCode (not in your file)
+fof_output_fileformat = "ascii"
 -- The mass function massfunc_z<z>.txt: number of logarithmic bins and the mass range (Msun/h)
-fof_massfunction_nbins = 30  -- new in SimulationCode (not in your file)
-fof_massfunction_Mmin = 1e10  -- new in SimulationCode (not in your file)
-fof_massfunction_Mmax = 1e16  -- new in SimulationCode (not in your file)
+fof_massfunction_nbins = 30
+fof_massfunction_Mmin = 1e10
+fof_massfunction_Mmax = 1e16
 -- Spherical overdensity (SO) masses around the FoF halos, e.g. {"200m", "500c", "vir"}
 -- (<Delta>m: Delta times the mean CDM+baryon density, <Delta>c: times the critical density,
 -- vir: Bryan & Norman 1998). Empty: none. The spheres must fit in fof_buffer_length_mpch
-fof_so_definitions = {}  -- new in SimulationCode (not in your file)
+fof_so_definitions = {}
 
 ------------------------------------------------------------
 -- Baryonification (snapshot post-processing)
@@ -701,7 +718,7 @@ fof_so_definitions = {}  -- new in SimulationCode (not in your file)
 -- needs pofk = true, whose mesh, assignment and shot-noise settings it uses). The defaults are
 -- illustrative and not calibrated
 ------------------------------------------------------------
-baryonification = false  -- new in SimulationCode (not in your file)
+baryonification = false
 if baryonification then
   -- The profile family
   baryonification_model = "schneider2019"
@@ -749,11 +766,11 @@ end
 -- Power-spectrum evaluation
 ------------------------------------------------------------
 -- Write P(k) of the force density field at every step (cheap, accurate only on large scales)
-pofk_every_step = true  -- new in SimulationCode (not in your file)
+pofk_every_step = true  -- new; COLASolver always wrote these per-step P(k) files
 -- Compute power-spectrum when we output
 pofk = true
 -- Gridsize to use for this
-pofk_nmesh = 128  -- yours: 1024
+pofk_nmesh = 128  -- yours: 1024 (project setting, set for every run in scripts/runs.py PROJECT)
 -- Use interlaced grids for alias reduction?
 pofk_interlacing = true
 -- Subtract shotnoise?
@@ -803,49 +820,49 @@ bispectrum_density_assignment_method = "PCS"
 -- Written to snapshot_<name>_z<z>/hybridbias_z<z>.txt
 ------------------------------------------------------------
 -- Compute the hybrid bias spectra when we output?
-hybridbias = false  -- yours: bias spectra were always written when pofk = true; pofk = true
+hybridbias = false  -- yours: the bias spectra were always computed with pofk = true (LagrangianBias.h). Now a separate switch (project setting, set for every run in scripts/runs.py PROJECT: true)
 -- Gridsize for the advected fields
-hybridbias_nmesh = 128  -- yours: bias spectra used pofk_nmesh = 1024
+hybridbias_nmesh = 128  -- yours: = pofk_nmesh (1024). Now its own grid; runs.py sets it equal to pofk_nmesh when a run changes pofk_nmesh
 -- Number of operators: 5 gives (1, delta, delta^2, s^2, nabla^2 delta) and 15 spectra
-hybridbias_noperators = 5  -- new in SimulationCode (not in your file)
+hybridbias_noperators = 5
 -- Use interlaced grids for alias reduction?
-hybridbias_interlacing = true  -- yours: pofk_interlacing = true
+hybridbias_interlacing = true  -- yours: = pofk_interlacing (true)
 -- Subtract the Poisson shot noise? (the usual basis spectra keep it)
-hybridbias_subtract_shotnoise = false  -- yours: false (never subtracted)
+hybridbias_subtract_shotnoise = false  -- yours: false (the shot noise was written to pofk_bias_info.txt, not subtracted); now in the header of hybridbias_z*.txt
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS
-hybridbias_density_assignment_method = "CIC"  -- yours: pofk_density_assignment_method = "PCS"
+hybridbias_density_assignment_method = "CIC"  -- yours: = pofk_density_assignment_method ("PCS"; project setting, set for every run in scripts/runs.py PROJECT)
 -- Smooth the linear field before forming the operators (Mpc/h; 0 = no smoothing)
-hybridbias_smoothing_scale = 0.0  -- yours: pofk_bias_smoothing_scale_hmpc = 0.0
+hybridbias_smoothing_scale = 0.0  -- yours: pofk_bias_smoothing_scale_hmpc = 0.0, same unit (Mpc/h) and filters, applied after the growth factor instead of before (the same result)
 -- The smoothing filter: gaussian, sharpk, tophat
 hybridbias_smoothing_filter = "gaussian"  -- yours: pofk_bias_smoothing_filter = "gaussian"
 -- Keep only |k| < this times the Nyquist frequency of the particle lattice in the
 -- linear field (a spherical cut so the operators are isotropic, as assumed in the
 -- LPT prediction). 0: all the modes of the lattice grid
-hybridbias_kcut_over_nyquist = 1.0  -- yours: 0.0 (no cut: all modes of the IC grid)
+hybridbias_kcut_over_nyquist = 1.0  -- yours: no cut (0.0; project setting, set for every run in scripts/runs.py PROJECT). The cut makes the operators isotropic and is needed by the Zel'dovich and one-loop predictions and the control variate; it changes the spectra, mostly nabla^2 delta_L, relative to runs without it
 -- Also write the Zel'dovich prediction (same cut and smoothing): hybridbias_zeldovich_z<z>.txt
-hybridbias_zeldovich = false  -- new in SimulationCode (not in your file)
+hybridbias_zeldovich = false  -- new: Zel'dovich prediction of the 15 spectra (needs the cut)
 -- Also write the spectra of the Zel'dovich field of the same IC: the particle lattice moved with the
 -- 1LPT displacement of the linear field at the output, with the same operator weights, grid and
 -- binning: hybridbias_zeldovichfield_z<z>.txt. Its mean is the Zel'dovich prediction, so
 -- P - (P_zeldovichfield - P_zeldovich) is a control variate (Kokron et al. 2022) with much less
 -- sample variance on large scales
-hybridbias_zeldovich_field = false  -- new in SimulationCode (not in your file)
+hybridbias_zeldovich_field = false  -- new: the Zel'dovich field of the same IC; with hybridbias_zeldovich also the control variate hybridbias_cv_z*.txt
 -- With hybridbias_zeldovich_field and hybridbias_zeldovich also write the control variate
 -- P_cv = P - beta(k) (P_zeldovichfield - P_zeldovich): hybridbias_cv_z<z>.txt, with
 -- beta(k) = [1 - tanh((k - k0) / dk)] / 2 (Kokron et al. 2022; k0, dk in h/Mpc; k0 = 0: beta = 1)
-hybridbias_zeldovich_cv_beta_k0 = 0.618  -- new in SimulationCode (not in your file)
-hybridbias_zeldovich_cv_beta_dk = 0.167  -- new in SimulationCode (not in your file)
+hybridbias_zeldovich_cv_beta_k0 = 0.618
+hybridbias_zeldovich_cv_beta_dk = 0.167
 -- No time stepping: write only the Zel'dovich-field spectra of the IC (and the Zel'dovich prediction
 -- if hybridbias_zeldovich) at the output redshifts. For adding the control variate to existing runs
 -- (same seed and IC settings) or for testing its mean over many realizations
-hybridbias_zeldovich_field_only = false  -- new in SimulationCode (not in your file)
+hybridbias_zeldovich_field_only = false
 -- Lower limit (h/Mpc) of the k-integrals of the LPT predictions (0: the start of the P(k) table)
-hybridbias_lpt_kmin = 0.0  -- new in SimulationCode (not in your file)
+hybridbias_lpt_kmin = 0.0
 -- Also write the one-loop LPT (CLEFT) prediction of all 15 spectra (no counterterms;
 -- same cut and smoothing of the operators): hybridbias_oneloop_z<z>.txt
-hybridbias_oneloop = false  -- new in SimulationCode (not in your file)
+hybridbias_oneloop = false  -- new: one-loop LPT prediction (needs the cut)
 -- The kernels of the one-loop prediction: EdS (Einstein-de Sitter kernels with the linear P(k) of
 -- the gravity model) or model (the scale- and time-dependent LPT kernels of the gravity model:
 -- f(R) and DGP with their screening, other models from G_eff(k,a), LCDM for GR; slower)
-hybridbias_oneloop_kernels = "EdS"  -- new in SimulationCode (not in your file)
+hybridbias_oneloop_kernels = "EdS"
 

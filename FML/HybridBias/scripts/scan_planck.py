@@ -11,7 +11,10 @@ Planck+BAO+SNe uncertainties 0.080 and 0.29 (Sec. 7.4) as steps; w0waCDM at (-1,
   at fixed Omega_b, and H_0 at fixed Omega_m and Omega_b.
 - wa = +5 sigma would give w0 + wa > 0, where the dark energy dominates at early times (CLASS cannot compute it), so the
   largest positive step is +3 sigma (w0 + wa = -0.13).
-- f(R) on a w0wa background (the w0, wa runs) is COLASolver's f(R) force law on that expansion history.
+- f(R) on a w0wa background (the w0, wa runs): SimulationCode takes the background curvature R(a) of the f(R) mass and
+  screening threshold from that expansion history. COLASolver used the LCDM one, Omega_m a^-3 + 4 (1 - Omega_m), so
+  the F5 boosts of the w0, wa runs made with COLASolver differ from new ones (the Compton wavelength today by a few %
+  at 1 sigma in w0, more at 5 sigma); the GR runs and the LCDM points (w0 = -1, wa = 0) are unaffected.
 - More f(R) models: gravity=["F4", "F5", "F6"] (about 10 more hours each); more seeds: seeds=[1001, 1002] (doubles
   the time). More redshifts: add "output_redshifts": [2.0, 1.0, 0.5, 0.0] and "timestep_nsteps":
   steps_per_interval(30, [2.0, 1.0, 0.5, 0.0]) (from runs) to fixed. Finished runs are skipped, so seeds and
@@ -37,7 +40,7 @@ PLANCK = {"cosmology_model": "w0waCDM", "cosmology_w0": -1.0, "cosmology_wa": 0.
           "cosmology_As": float(f"{np.exp(ln_As) * 1e-10:.6g}"), "cosmology_ns": 0.9649}
 
 if __name__ == "__main__":  # So that other scans can import PLANCK
-    planck = scan("planck_R1", fixed={**PLANCK, "pofk_bias_smoothing_scale_hmpc": 1.0}, gravity=["F5"], seeds=[1001], one_at_a_time={
+    planck = scan("planck_R1", fixed={**PLANCK, "hybridbias_smoothing_scale": 1.0}, gravity=["F5"], seeds=[1001], one_at_a_time={
         "cosmology_OmegaCDM": [round(Omega_m + n * 0.0073 - Omega_b, 6) for n in SIGMAS],
         "cosmology_h": [round(h + n * 0.0054, 6) for n in SIGMAS],
         "cosmology_As": [float(f"{np.exp(ln_As + n * 0.014) * 1e-10:.6g}") for n in SIGMAS],

@@ -23,7 +23,7 @@ from runs import Scan, scan
 from scan_planck import PLANCK
 from spectra import scan_figures
 
-R = "pofk_bias_smoothing_scale_hmpc"
+R = "hybridbias_smoothing_scale"  # pofk_bias_smoothing_scale_hmpc in COLASolver (and in the run folder names)
 KRANGE = {"kmin": 0.01, "kmax": 1.0}
 
 

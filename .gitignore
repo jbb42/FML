@@ -20,3 +20,8 @@ FML/Neon/*
 # OS files and Python bytecode
 .DS_Store
 __pycache__/
+
+# Single-precision build of SimulationCode (see HybridBias/README.md)
+FML/SimulationCode/nbody_float
+# Native builds on euclid22 (FML/build_euclid22.sh)
+FML/build_euclid22_*

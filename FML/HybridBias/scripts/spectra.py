@@ -1,7 +1,8 @@
 """Load the 15 spectra of runs and combine them into figures for plot_page.py and plot_single.py.
 
-A run folder has snapshot_*_z<redshift>/pofk_ij.txt files. Its 15 spectra P_ij(k), i <= j, are of the fields
-0 = matter, 1 = delta_L, 2 = delta_L^2, 3 = s^2 and 4 = nabla^2 delta_L.
+A run folder has snapshot_*_z<redshift>/hybridbias_z<redshift>.txt (SimulationCode: k, number of modes, then the 15
+spectra), or for runs made with COLASolver one file pofk_ij.txt per spectrum. The 15 spectra P_ij(k), i <= j, are of
+the fields 0 = matter, 1 = delta_L, 2 = delta_L^2, 3 = s^2 and 4 = nabla^2 delta_L, in the same order in both.
 
 A curve is a dict with "k", "P" (array [15, len(k)]), optionally "error" (same shape, drawn as a band), "label",
 "info" (added to the label) and matplotlib options such as "color".
@@ -30,10 +31,16 @@ NAMES = [r"\delta_m", r"\delta_L", r"\delta_L^2", r"s^2", r"\nabla^2\delta_L"]
 def load_run(folder, z=0.0):
     """k and the 15 spectra of a run as an array [15, len(k)], or (None, None) if it has no output at redshift z."""
     snapshots = glob.glob(os.path.join(folder, f"snapshot_*_z{z:.3f}"))
-    if not snapshots or not os.path.exists(os.path.join(snapshots[0], "pofk_44.txt")):
+    if not snapshots:
         return None, None
-    spectra = [np.loadtxt(os.path.join(snapshots[0], f"pofk_{i}{j}.txt")) for i, j in PAIRS]
-    return spectra[0][:, 0], np.array([s[:, 1] for s in spectra])
+    path = os.path.join(snapshots[0], f"hybridbias_z{z:.3f}.txt")
+    if os.path.exists(path):  # SimulationCode
+        data = np.loadtxt(path)
+        return data[:, 0], data[:, 2:2 + len(PAIRS)].T
+    if os.path.exists(os.path.join(snapshots[0], "pofk_44.txt")):  # COLASolver
+        spectra = [np.loadtxt(os.path.join(snapshots[0], f"pofk_{i}{j}.txt")) for i, j in PAIRS]
+        return spectra[0][:, 0], np.array([s[:, 1] for s in spectra])
+    return None, None
 
 
 def redshifts(folders):

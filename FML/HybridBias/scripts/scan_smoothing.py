@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoothing of the linear field the bias weights are built from (pofk_bias_smoothing_scale_hmpc, Gaussian): the Planck
+"""Smoothing of the linear field the bias weights are built from (hybridbias_smoothing_scale, Gaussian): the Planck
 fiducial without smoothing and with R = 0.5, 0.75, 1, 2 and 3 Mpc/h, in GR and f(R) (F5), one seed and both phases:
 6 x 2 x 2 = 24 runs, about 3.5 hours (done; commented out below). The smoothing does not change the simulation, so the matter spectrum P_00 is the
 same in all of them; the ratio pages are relative to R = 0.
@@ -19,7 +19,7 @@ from runs import scan
 from scan_planck import PLANCK
 from spectra import scan_figures
 
-R = "pofk_bias_smoothing_scale_hmpc"
+R = "hybridbias_smoothing_scale"  # pofk_bias_smoothing_scale_hmpc in COLASolver (and in the run folder names)
 KRANGE = {"kmin": 0.01, "kmax": 1.0}
 
 
