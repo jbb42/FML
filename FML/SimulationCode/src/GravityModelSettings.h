@@ -18,6 +18,7 @@ namespace SIMCODE {
         std::string mu_parametrization{};
         double mu_mu0{};
         std::vector<double> mu_BZ_params{};
+        std::vector<double> mu_powerlaw_params{};
         std::string mu_filename{};
         std::vector<double> mbeta_params{};
         double fofr_fofr0{};
@@ -60,8 +61,8 @@ namespace SIMCODE {
                            "DE",
                            "Poisson equation with G_eff/G = mu(a,k), no screening. DE: mu = 1 + mu0 "
                            "Omega_DE(a)/Omega_DE(a=1). BZ: mu = (1 + beta1 lambda1^2 k^2 a^s) / (1 + lambda1^2 k^2 "
-                           "a^s) (Bertschinger & Zukin 2008). table: mu(a) or mu(a,k) from a file",
-                           {"DE", "BZ", "table"});
+                           "a^s) (Bertschinger & Zukin 2008). powerlaw: mu = 1 + A a^n. table: mu(a) or mu(a,k) from a file",
+                           {"DE", "BZ", "powerlaw", "table"});
                 f.when(is_one_of("gravity_model_mu_parametrization", {"DE"}),
                        "gravity_model_mu_parametrization = DE",
                        [&]() {
@@ -79,6 +80,15 @@ namespace SIMCODE {
                                       "{beta1, lambda1 (Mpc/h), s} in mu = (1 + beta1 lambda1^2 k^2 a^s) / (1 + "
                                       "lambda1^2 k^2 a^s) (k in h/Mpc)",
                                       check::list_of(3));
+                       });
+                f.when(is_one_of("gravity_model_mu_parametrization", {"powerlaw"}),
+                       "gravity_model_mu_parametrization = powerlaw",
+                       [&]() {
+                           f.required("gravity_model_mu_powerlaw_params",
+                                      mu_powerlaw_params,
+                                      std::vector<double>{0.0, 0.0},
+                                      "{A, n} in mu = 1 + A a^n",
+                                      check::list_of(2));
                        });
                 f.when(is_one_of("gravity_model_mu_parametrization", {"table"}),
                        "gravity_model_mu_parametrization = table",

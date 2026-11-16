@@ -222,9 +222,13 @@ def summary():
 
 
 def gravity_parameters(model):
-    """The parameters of a gravity model: "GR", or "F5" for f(R) with fofr0 = 1e-5 (F4: 1e-4, ...)."""
+    """The parameters of a gravity model: "GR", "F5" for f(R) with fofr0 = 1e-5 (F4: 1e-4, ...),
+    or "mu_<name>" for gravity_model = "mu" with table mu_tables/<name>.txt."""
     if model == "GR":
         return {"gravity_model": "GR"}
+    if model.startswith("mu_"):
+        return {"gravity_model": "mu", "gravity_model_mu_parametrization": "table",
+                "gravity_model_mu_filename": f"mu_tables/{model[3:]}.txt"}
     return {"gravity_model": "f(R)", "gravity_model_fofr_fofr0": 10.0 ** -int(model[1:])}
 
 

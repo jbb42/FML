@@ -155,6 +155,7 @@ gravity_model = "GR"
 if gravity_model == "mu" then
   -- DE: mu = 1 + mu0 Omega_DE(a)/Omega_DE(a=1)
   -- BZ: mu = (1 + beta1 lambda1^2 k^2 a^s) / (1 + lambda1^2 k^2 a^s) (Bertschinger & Zukin 2008)
+  -- powerlaw: mu = 1 + A a^n (k-independent)
   -- table: mu(a) or mu(a,k) from a file
   gravity_model_mu_parametrization = "DE"
   if gravity_model_mu_parametrization == "DE" then
@@ -163,6 +164,10 @@ if gravity_model == "mu" then
   if gravity_model_mu_parametrization == "BZ" then
     -- {beta1, lambda1 (Mpc/h), s} (k in h/Mpc)
     gravity_model_mu_BZ_params = {1.0, 0.0, 4.0}
+  end
+  if gravity_model_mu_parametrization == "powerlaw" then
+    -- A, n (mu = 1 + A a^n)
+    gravity_model_mu_powerlaw_params = {0.0, 0.0}
   end
   if gravity_model_mu_parametrization == "table" then
     -- Rows "a mu" or "a k mu" (k in h/Mpc, a regular grid in a and k; e.g. from hi_class)

@@ -49,6 +49,8 @@ class GravityModelMu final : public GravityModel<NDIM> {
     double BZ_beta1{1.0};
     double BZ_lambda1_mpch{0.0};
     double BZ_s{4.0};
+    double powerlaw_A{0.0};
+    double powerlaw_n{0.0};
     std::string table_filename;
     bool table_has_k{false};
     Spline mu_of_loga_spline;
@@ -67,6 +69,8 @@ class GravityModelMu final : public GravityModel<NDIM> {
             const double x = BZ_lambda1_mpch * BZ_lambda1_mpch * k_hmpc * k_hmpc * std::pow(a, BZ_s);
             return (1.0 + BZ_beta1 * x) / (1.0 + x);
         }
+        if (parametrization == "powerlaw")
+            return 1.0 + powerlaw_A * std::pow(a, powerlaw_n);
         if (table_has_k) {
             // A table needs k > 0: use the smallest k in the table for k = 0
             const double logk = k_hmpc > 0.0 ? std::log(k_hmpc) : -1e30;
@@ -103,6 +107,10 @@ class GravityModelMu final : public GravityModel<NDIM> {
             BZ_beta1 = p[0];
             BZ_lambda1_mpch = p[1];
             BZ_s = p[2];
+        } else if (parametrization == "powerlaw") {
+            const auto & p = s.mu_powerlaw_params; // (2 numbers: checked in GravityModelSettings)
+            powerlaw_A = p[0];
+            powerlaw_n = p[1];
         } else if (parametrization == "table") {
             table_filename = s.mu_filename;
             read_table();
