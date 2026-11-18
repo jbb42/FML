@@ -9,8 +9,9 @@ COMMON="-DCMAKE_BUILD_TYPE=Release -DFML_BUILD_TESTS=OFF -DCMAKE_CXX_COMPILER=mp
 cmake -S SimulationCode -B build_euclid22_double $COMMON -DFFTW_ROOT=$HOME/local > build_euclid22_double.cmake.log 2>&1 \
     && cmake --build build_euclid22_double -j 32 > build_euclid22_double.build.log 2>&1
 echo "double: exit $?"
-# Single precision: the float FFTW of hansw (no threads library there)
+# Single precision: the float FFTW of hansw (no threads library there); since FMLDevelop of 2026-11-18 the perturbation
+# theory (FFTLog) also needs the double FFTW, linked statically from hansw
 cmake -S SimulationCode -B build_euclid22_float $COMMON -DFFTW_ROOT=$H -DFML_FFTW_PRECISION=float \
-    -DFML_USE_FFTW_THREADS=OFF > build_euclid22_float.cmake.log 2>&1 \
+    -DFML_USE_FFTW_THREADS=OFF -DCMAKE_CXX_STANDARD_LIBRARIES=$H/lib/libfftw3.a > build_euclid22_float.cmake.log 2>&1 \
     && cmake --build build_euclid22_float -j 32 > build_euclid22_float.build.log 2>&1
 echo "float: exit $?"
