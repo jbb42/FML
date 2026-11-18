@@ -3,7 +3,7 @@
 D_ij = (P_mu - P_GR) / sqrt(P_ii^GR P_jj^GR).
 
 Design (nested, written once to results/<name>/design.txt and never changed afterwards):
-  - N cosmologies, a Latin hypercube in (Omega_cdm, w0, wa) within +-5 sigma of Planck 2018 (wa: -5 / +3 sigma), with
+  - N cosmologies, an optimised Latin hypercube (random-cd) in (Omega_cdm, w0, wa) within +-5 sigma of Planck 2018 (wa: -5 / +3 sigma), with
     w0 + wa <= -0.13 (CLASS fails as w0 + wa -> 0; -0.13 is the largest value tested): wa is drawn uniformly between
     its lower limit and min(its upper limit, -0.13 - w0), so the hypercube property holds in (Omega_cdm, w0, u_wa).
     h, A_s, n_s, Omega_b fixed at Planck (results/mu_cosmology: they change D by < 0.5% at k < 0.3, ~1% at k ~ 1 for
@@ -48,11 +48,12 @@ N_RANGE, MU0_RANGE, A_MAX = (1.0, 4.0), (-1.08, 0.71), 0.5
 
 
 def lhs(n, d, rng):
-    """A Latin hypercube of n points in [0, 1]^d: one point in each of the n strata of every dimension."""
-    u = (np.arange(n)[:, None] + rng.random((n, d))) / n
-    for j in range(d):
-        u[:, j] = u[rng.permutation(n), j]
-    return u
+    """A Latin hypercube of n points in [0, 1]^d (one point in each of the n strata of every dimension), optimised
+    with 'random-cd' (coordinate swaps that lower the centred discrepancy, keeping the Latin hypercube): 6x (n = 150,
+    d = 3) to 13x (n = 450, d = 2) more uniform than a plain random one. scipy.stats.qmc.LatinHypercube; FML 2.0 has
+    the same algorithm in C++ (LatinHyperCube/LatinHyperCube.h). Needs scipy, like the rest of make_design."""
+    from scipy.stats import qmc
+    return qmc.LatinHypercube(d, optimization="random-cd", seed=int(rng.integers(2**31))).random(n)
 
 
 def make_design(N, rng):
