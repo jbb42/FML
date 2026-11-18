@@ -9,6 +9,8 @@ in % of max_k |D(fiducial)|, the worst of the main spectra (11, dd, d2d2, s2s2).
 against another, divided by sqrt(2) (the noise of one run).
 
 Writes figures/mu_boost/cosmology.pdf:
+  page 1    verdict (z = 0): which parameters can be fixed (1-sigma shift against the noise); the pages below
+            are then numbered 2-7
   page 1-2  overview (z = 0, z = 1): per parameter one dot per gravity model (colour: n), the noise of one run as a
             grey band; large (k < 0.3), intermediate (0.3 < k < 0.6) and small scales (0.6 < k < 1)
   page 5-6  all 15 spectra (z = 0, z = 1) in the 15-spectra layout: per parameter the change of D at large,
@@ -350,10 +352,91 @@ def all_spectra_dots(pdf, z):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------------------------- verdict
+SIGMAS = {"Ob": (5, 5), "ns": (5, 5), "As": (5, 5), "h": (5, 5), "OmegaCDM": (5, 5), "wa": (5, 3), "w0": (5, 5)}
+FIX_COLOUR, VARY_COLOUR = "#2a78d6", "#eb6834"
+
+
+def effect_1sigma(z, lo_l, hi_l, model, lo, hi, pairs=None):
+    """The change of D for a 1 sigma shift (linear in the +-5 sigma runs; wa high: +3 sigma), worst side and worst
+    of the given spectra (default: the main ones), in % of max|D_fid| of each spectrum."""
+    key = lo_l.rsplit("_", 1)[0]
+    s_lo, s_hi = SIGMAS[key]
+    k, Df = D_cached(z, "fiducial", model)
+    sel = (k > lo) & (k <= hi)
+    out = 0.0
+    for p in pairs if pairs is not None else [A.PAIRS.index(q) for q in MAIN]:
+        scale = np.max(np.abs(Df[p][(k > 0.01) & (k < 1.0)]))
+        for lab, sg in ((lo_l, s_lo), (hi_l, s_hi)):
+            out = max(out, 100 * np.mean(np.abs(D_cached(z, lab, model)[1][p][sel] - Df[p][sel])) / scale / sg)
+    return out
+
+
+def verdict_page(pdf, z):
+    ms = models()
+    ranges = [(t.split(",")[0], lo, hi) for t, lo, hi in RANGES]
+    noise_max = [max(noise(z, m, lo, hi) for m, _, _ in ms) for _, lo, hi in ranges]
+    rows = []
+    for name, lo_l, hi_l in PARAMS:
+        main = [max(effect_1sigma(z, lo_l, hi_l, m, lo, hi) for m, _, _ in ms) for _, lo, hi in ranges]
+        fix = all(e <= nz for e, nz in zip(main, noise_max))
+        # The worst of all 15 spectra (small scales), skipping spectra where the effect is within their own noise
+        worst, worst_p = 0.0, 0
+        for p in range(15):
+            e = max(effect_1sigma(z, lo_l, hi_l, m, 0.6, 1.0, [p]) for m, _, _ in ms)
+            if e > worst:
+                worst, worst_p = e, p
+        rows.append((name, main, fix, worst, worst_p))
+    names = [r"1", r"\delta", r"\delta^2", r"s^2", r"\nabla^2\delta"]
+
+    fig = plt.figure(figsize=(17, 8.5))
+    gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 0.9], left=0.08, right=0.99, top=0.8, bottom=0.1, wspace=0.08)
+    axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    for ax, (title, lo, hi), nz in zip(axes, ranges, noise_max):
+        ax.axvspan(0.01, nz, color="#e3e2dc", lw=0, zorder=0)
+        ax.text(np.sqrt(0.01 * nz), -0.85, "within the noise\nof one run", ha="center", va="center", fontsize=8.5,
+                color=MUTED, style="italic")
+        for y, (name, main, fix, _, _) in enumerate(rows):
+            e = main[ranges.index((title, lo, hi))]
+            col = FIX_COLOUR if fix else VARY_COLOUR
+            ax.plot([0.01, e], [y, y], color=col, lw=2.5, alpha=0.35, solid_capstyle="butt", zorder=1)
+            ax.plot(e, y, "o", ms=10, color=col, mec="white", mew=1.5, zorder=2)
+            ax.text(e * 1.35, y, f"{e:.2f}%" if e < 1 else f"{e:.1f}%", va="center", fontsize=9, color=INK)
+        _style(ax, (0.01, 30))
+        ax.set_ylim(len(rows) - 0.5, -1.5)
+        ax.set_yticks(range(len(rows)))
+        ax.set_yticklabels([r[0] for r in rows] if ax is axes[0] else [], fontsize=12, color=INK)
+        ax.set_title(f"{title}, {lo:g} < k < {hi:g}", fontsize=11.5, color=INK, loc="left")
+        ax.set_xlabel("change of D for a 1-sigma shift, % of its size", color=MUTED, fontsize=9)
+    vax = fig.add_subplot(gs[0, 3])
+    vax.axis("off")
+    vax.set_ylim(len(rows) - 0.5, -1.5)
+    vax.set_xlim(0, 1)
+    vax.text(0.02, -0.85, "verdict", fontsize=11.5, color=INK, va="center")
+    for y, (name, main, fix, worst, wp) in enumerate(rows):
+        i, j = A.PAIRS[wp]
+        vax.text(0.02, y - 0.12, "FIX" if fix else "VARY", fontsize=13, fontweight="bold", va="center",
+                 color=FIX_COLOUR if fix else VARY_COLOUR)
+        vax.text(0.22, y - 0.12, "within the noise at all scales" if fix else "above the noise", fontsize=9.5,
+                 va="center", color=INK)
+        vax.text(0.22, y + 0.22, rf"worst of all 15: ${names[i]}\times{names[j]}$ {worst:.1f}% (k > 0.6)", fontsize=8.5,
+                 va="center", color=MUTED)
+    fig.suptitle(f"Which cosmological parameters can be fixed in the mu(a) emulator?  z = {z:g}", x=0.01, ha="left",
+                 fontsize=15, color=INK, y=0.975)
+    fig.text(0.01, 0.885, "Dot: how much the mu - GR change D moves if the parameter is off by 1 sigma (Planck 2018), "
+             "worst of the 7 gravity models and of the main spectra (11, dd, d2d2, s2s2); linear in the +-5 sigma runs "
+             "(wa high: +3 sigma).\nGrey: the noise of one run (largest over the models). FIX: within the noise at "
+             "every scale, so fixing it costs less than the noise every production run has anyway. VARY: otherwise.",
+             fontsize=9.5, color=MUTED)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     plt.rcParams.update({"figure.facecolor": "#fcfcfb", "axes.facecolor": "#fcfcfb", "font.size": 10})
     path = os.path.join(ROOT, "figures", "mu_boost", "cosmology.pdf")
     with PdfPages(path) as pdf:
+        verdict_page(pdf, 0.0)
         for z in (0.0, 1.0):
             overview_dots(pdf, z)
         for z in (0.0, 1.0):
