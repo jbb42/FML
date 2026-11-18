@@ -112,23 +112,27 @@ if __name__ == "__main__":
         print(f"   A = {A:+.1f}, n = {n:3.1f}: mu0_equiv {to_mu0(g):+.2f}, D/D_GR - 1 = {100 * d:+5.1f}%, "
               f"fs8 change {100 * g:+5.1f}%, Delta chi^2 {c - C.min():5.1f}")
 
-    fig, ax = plt.subplots(1, 2, figsize=(13, 5.2))
-    for a_, Z, top, title in [(ax[0], M0, 1.5, r"equivalent $\mu_0$ (DESI parametrisation)"),
-                              (ax[1], 100 * D0, 20, r"growth at $z=0$: $D_\mu/D_{\rm GR}-1$ (%)")]:
-        cs = a_.contourf(As, ns, np.clip(Z, -top, top), levels=np.linspace(-top, top, 21), cmap="RdBu_r")
-        fig.colorbar(cs, ax=a_)
-        for (lo, hi), ls in [((-0.39, 0.49), "-"), ((-0.80, 0.49), "--"), ((-1.08, 0.71), ":")]:
-            a_.contour(As, ns, M0, levels=[lo, hi], colors="k", linestyles=ls, linewidths=1.2)
-        a_.contour(As, ns, dchi, levels=[6.18], colors="#2a78d6", linewidths=1.5)
-        for A, n in [(0.1, 3), (0.3, 3), (1.0, 3), (0.1, 1), (0.3, 1), (1.0, 1), (-0.5, 0.5), (-0.5, 4), (1, 0.5),
-                     (1, 4)]:
-            a_.plot(A, n, "k*", ms=7)
-        a_.set_xlabel("A")
-        a_.set_ylabel("n")
-        a_.set_title(title, fontsize=10)
-    fig.suptitle(r"$\mu = 1 + A a^n$. Black: $\mu_0$ within 2$\sigma$ (LCDM, solid), 2$\sigma$ LCDM or w0wa (dashed), "
-                 r"3$\sigma$ (dotted). Blue: RSD $f\sigma_8$ $\Delta\chi^2 = 6.18$. Stars: simulated models.",
-                 fontsize=10)
+    # One panel: shaded = excluded (equivalent mu0 outside 3 sigma); lines = growth change today; box = prior
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    excluded = (M0 < -1.08) | (M0 > 0.71)
+    ax.contourf(As, ns, excluded.astype(float), levels=[0.5, 1.5], colors=["#e6e5e0"])
+    ax.contour(As, ns, M0, levels=[-1.08, 0.71], colors="#0b0b0b", linewidths=1.6)
+    ax.contour(As, ns, M0, levels=[-0.39, 0.49], colors="#0b0b0b", linewidths=1.0, linestyles="--")
+    cs = ax.contour(As, ns, 100 * D0, levels=[-10, -5, -2, -1, 1, 2, 5, 10], colors="#2a78d6", linewidths=0.8, negative_linestyles="solid")
+    ax.clabel(cs, fmt=lambda v: f"{v:+g}%", fontsize=8)
+    ax.add_patch(matplotlib.patches.Rectangle((-0.5, 1), 1.0, 3, fill=False, ec="#eb6834", lw=2))
+    ax.text(0.52, 4.05, "proposed prior", color="#eb6834", fontsize=10, va="bottom")
+    sims = [(0.3, 3), (-0.35, 1), (0.2, 1), (0.6, 2), (-0.5, 2), (-0.5, 4), (1, 4),  # cosmology test
+            (0.1, 3), (1.0, 3), (0.1, 1), (0.3, 1), (1.0, 1), (-0.5, 0.5), (1, 0.5)]   # earlier runs
+    for A, n in sims:
+        out = excluded[np.argmin(np.abs(ns - n)), np.argmin(np.abs(As - A))]
+        ax.plot(A, n, "x" if out else "*", color="#0b0b0b", ms=9 if not out else 7)
+    ax.set_xlim(-1, 2)
+    ax.set_xlabel("A  (strength today: mu(z = 0) = 1 + A)")
+    ax.set_ylabel("n  (how late it switches on; large n = only at late times)")
+    ax.set_title("Which mu = 1 + A a^n are allowed by the growth of structure (DESI 2024 + CMB + SN)?\n"
+                 "grey: excluded (> 3 sigma); solid / dashed lines: 3 / 2 sigma edges; blue: growth today vs GR; "
+                 "stars: allowed runs, x: excluded runs", fontsize=9, loc="left")
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "figures", "mu_boost",
                         "mu_prior.pdf")
     fig.savefig(path, bbox_inches="tight")

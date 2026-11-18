@@ -35,16 +35,22 @@ BASE_PARAMETER_FILE = os.path.join(ROOT, "parameterfile.lua")  # SimulationCode'
 PROJECT = {
     "simulation_boxsize": 1024.0,
     "particle_Npart_1D": 1024,
-    "force_nmesh": 1024,  # = particle_Npart_1D; see the README on a finer force grid
+    "force_nmesh": 2048,  # Twice the particle grid (was 1024 before 2026-11-18); see the README
     "timestep_nsteps": [30],
     "output_particles": False,
-    "pofk_nmesh": 1024,
+    "pofk_nmesh": 512,  # (was 1024)
     "ic_input_filename": "../SimulationCode/input/example_power_spectrum_cb_z0.000.txt",  # Relative to ROOT
+    "ic_use_gravity_model_GR": True,  # The same GR initial conditions for GR and mu runs (was the default, false)
     "hybridbias": True,
-    "hybridbias_nmesh": 1024,  # The bias spectra on the grid of the matter spectrum, as COLASolver did
+    "hybridbias_nmesh": 512,  # k_Ny = 1.57 h/Mpc; the prediction costs little more than at 256 (was 1024)
     "hybridbias_density_assignment_method": "PCS",
-    "hybridbias_kcut_over_nyquist": 0.0,  # No cut, as COLASolver; > 0 (e.g. 1.0) for the predictions and the control variate
+    "hybridbias_smoothing_scale": 1.0,  # R = 1 Mpc/h: converged spectra, unbiased control variate (was 0)
+    "hybridbias_kcut_over_nyquist": 1.0,  # Needed by the predictions and the control variate (was 0.0, as COLASolver)
+    "hybridbias_zeldovich_field": True,  # The control variate: the Zel'dovich field of the same initial conditions
+    "hybridbias_zeldovich": True,  # and its prediction; together they give hybridbias_cv_z*.txt (both were false)
 }
+# Production settings since 2026-11-18. Runs made before then are finished and skipped, so the old defaults above only
+# matter for re-running an old script from scratch: give it the old values explicitly.
 DRY_RUN, PLOT_ONLY = "--dry-run" in sys.argv, "--plot-only" in sys.argv
 counts = {"run": 0, "already finished": 0, "failed": 0}
 
@@ -197,9 +203,12 @@ def run(name, ntasks=64, **parameters):
         return folder
     print(f"{time.strftime('%F %T')} Running {name} with {ntasks} tasks")
     current_log = os.path.join(os.path.dirname(folder), "current_log.txt")  # Follow with tail -F
-    if os.path.lexists(current_log):
-        os.remove(current_log)
-    os.symlink(os.path.join(folder, "log.txt"), current_log)
+    try:  # Several nodes may run in the same parent folder at once
+        if os.path.lexists(current_log):
+            os.remove(current_log)
+        os.symlink(os.path.join(folder, "log.txt"), current_log)
+    except OSError:
+        pass
     # Each MPI task gets its share of the hardware threads, and Intel MPI pins it to its own cores
     env = {"OMP_NUM_THREADS": str(max(1, os.cpu_count() // ntasks)), "I_MPI_PIN_DOMAIN": "omp", **os.environ}
     start = time.time()
