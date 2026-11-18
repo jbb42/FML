@@ -9,10 +9,10 @@ in % of max_k |D(fiducial)|, the worst of the main spectra (11, dd, d2d2, s2s2).
 against another, divided by sqrt(2) (the noise of one run).
 
 Writes figures/mu_boost/cosmology.pdf:
-  page 1-2  overview (z = 0, z = 1): parameters x gravity models, colour = effect / noise (relevance), number = effect
-            in %; large (k < 0.3), intermediate (0.3 < k < 0.6) and small scales (0.6 < k < 1)
-  page 5-6  all 15 spectra (z = 0, z = 1): rows = parameters and joint extremes, columns = spectra, per spectrum
-            the worst gravity model; colour and number = effect in %, (number) = within the noise
+  page 1-2  overview (z = 0, z = 1): per parameter one dot per gravity model (colour: n), the noise of one run as a
+            grey band; large (k < 0.3), intermediate (0.3 < k < 0.6) and small scales (0.6 < k < 1)
+  page 5-6  all 15 spectra (z = 0, z = 1) in the 15-spectra layout: per parameter the change of D at large,
+            intermediate and small scales (worst gravity model) and the noise of one run
   page 3-4  k dependence (z = 0, z = 1): rows = parameters, columns = main spectra; signed effect
             (D_hi - D_lo) / 2 in % of max|D_fid| per model (colour: n, solid: A > 0, dashed: A < 0), grey: +-noise
     python3 scripts/plot_mu_cosmology.py
@@ -44,6 +44,29 @@ JOINT = [(r"$w_0$-, $w_a$-", "w0lo_walo"), (r"$w_0$+, $w_a$-", "w0hi_walo"), (r"
 RANGES = [("large scales, 0.01 < k < 0.3", 0.01, 0.3), ("intermediate scales, 0.3 < k < 0.6", 0.3, 0.6),
           ("small scales, 0.6 < k < 1", 0.6, 1.0)]
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
+# One colour rule for every heatmap: the effect in %, in four steps of one hue
+CLASS_EDGES = [0.0, 1.0, 3.0, 10.0, 1e9]
+CLASS_COLOURS = ["#eaf2fc", "#a9cdf3", "#4a90e2", "#0d3e80"]
+CLASS_LABELS = ["< 1 %", "1 - 3 %", "3 - 10 %", "> 10 %"]
+CMAP = matplotlib.colors.ListedColormap(CLASS_COLOURS)
+NORM = matplotlib.colors.BoundaryNorm(CLASS_EDGES, CMAP.N)
+
+
+def draw_cells(ax, E, R, fontsize):
+    """Colour and number: the effect E in %; (number) in brackets: not larger than the noise of one run (R = E / noise < 1)."""
+    ax.imshow(E, cmap=CMAP, norm=NORM, aspect="auto")
+    for r in range(E.shape[0]):
+        for c in range(E.shape[1]):
+            txt = f"{E[r, c]:.1f}" if E[r, c] < 99.5 else f"{E[r, c]:.0f}"
+            ax.text(c, r, f"({txt})" if R[r, c] < 1 else txt, ha="center", va="center", fontsize=fontsize,
+                    color="white" if E[r, c] >= 3 else INK)
+
+
+def class_legend(fig, y):
+    handles = [matplotlib.patches.Patch(color=c, label=l) for c, l in zip(CLASS_COLOURS, CLASS_LABELS)]
+    handles.append(matplotlib.patches.Patch(color="none", label="(x): within the noise of one run"))
+    fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.99, y), ncol=5, frameon=False, fontsize=10,
+               title="change of D in % of its size", title_fontsize=10)
 
 
 def models():
@@ -83,17 +106,12 @@ def overview(pdf, z):
     ms = models()
     rows = [(name, [lo_l, hi_l]) for name, lo_l, hi_l in PARAMS] + [(name, [l]) for name, l in JOINT]
     fig, axes = plt.subplots(1, len(RANGES), figsize=(21, 8.2), sharey=True)
-    fig.subplots_adjust(left=0.1, right=0.9, top=0.84, bottom=0.12, wspace=0.06)
-    vmax = 10.0
+    fig.subplots_adjust(left=0.1, right=0.98, top=0.8, bottom=0.12, wspace=0.06)
     for ax, (title, lo, hi) in zip(axes, RANGES):
         N = np.array([noise(z, m, lo, hi) for m, _, _ in ms])
         E = np.array([[max(effect(z, l, m, lo, hi) for l in labels) for m, _, _ in ms] for _, labels in rows])
         R = E / N
-        im = ax.imshow(np.clip(R, 0.1, vmax), cmap="Blues", norm=matplotlib.colors.LogNorm(0.3, vmax), aspect="auto")
-        for r in range(len(rows)):
-            for c in range(len(ms)):
-                ax.text(c, r, f"{E[r, c]:.1f}", ha="center", va="center", fontsize=8.5,
-                        color="white" if R[r, c] > 3 else INK)
+        draw_cells(ax, E, R, 8.5)
         ax.axhline(len(PARAMS) - 0.5, color="white", lw=4)
         ax.set_xticks(range(len(ms)))
         ax.set_xticklabels([model_label(*x) for x in ms], fontsize=8.5, color=INK)
@@ -108,16 +126,13 @@ def overview(pdf, z):
         for c in range(1, len(ms)):
             if ns[c] != ns[c - 1]:
                 ax.axvline(c - 0.5, color="white", lw=3)
-    cax = fig.add_axes([0.915, 0.12, 0.012, 0.72])
-    cb = fig.colorbar(im, cax=cax)
-    cb.set_label("effect / noise of one run (relevance)", color=MUTED)
-    cb.outline.set_visible(False)
+    class_legend(fig, 0.995)
     fig.suptitle(f"How much does each parameter change the mu - GR change D of the spectra?  z = {z:g}", x=0.1,
                  ha="left", fontsize=14, color=INK)
-    fig.text(0.1, 0.885, "Number: |D(cosmology) - D(fiducial)| in % of max|D(fiducial)|, worst of the main spectra "
-             "(11, dd, d2d2, s2s2) and of -5 / +5 sigma (wa: +3). Upper block: one parameter at a time; lower block: "
-             "joint extremes.\nColour: the number divided by the realisation noise of one run (from seeds 1001-1003); "
-             "pale (< 1): not distinguishable from noise. Models ordered by n.", fontsize=9, color=MUTED)
+    fig.text(0.1, 0.885, "Colour and number: |D(cosmology) - D(fiducial)| in % of max|D(fiducial)|, worst of the main "
+             "spectra (11, dd, d2d2, s2s2) and of -5 / +5 sigma (wa: +3). Upper block: one parameter at a time; lower "
+             "block: joint extremes.\n(Number) in brackets: not larger than the realisation noise of one run (seeds "
+             "1001-1003). Models ordered by n.", fontsize=9, color=MUTED)
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -189,7 +204,7 @@ def all_spectra(pdf, z):
     rows = [(name, [lo_l, hi_l]) for name, lo_l, hi_l in PARAMS] + [(name, [l]) for name, l in JOINT]
     seeds = ("fiducial_s1002", "fiducial_s1003")
     fig, axes = plt.subplots(len(RANGES), 1, figsize=(16, 22))
-    fig.subplots_adjust(left=0.13, right=0.92, top=0.94, bottom=0.05, hspace=0.42)
+    fig.subplots_adjust(left=0.13, right=0.98, top=0.93, bottom=0.05, hspace=0.42)
     for ax, (title, lo, hi) in zip(axes, RANGES):
         E = np.zeros((len(rows), 15))
         R = np.zeros((len(rows), 15))
@@ -204,13 +219,7 @@ def all_spectra(pdf, z):
                     e = max(ch(l) for l in labels)
                     E[r, p] = max(E[r, p], e)
                     R[r, p] = max(R[r, p], e / nz)
-        # Colour and number: the effect in %; (number) in brackets: not larger than the noise of one run
-        im = ax.imshow(np.clip(E, 0.1, 30), cmap="Blues", norm=matplotlib.colors.LogNorm(0.1, 30), aspect="auto")
-        for r in range(len(rows)):
-            for c in range(15):
-                txt = f"{E[r, c]:.1f}" if E[r, c] < 99.5 else f"{E[r, c]:.0f}"
-                ax.text(c, r, f"({txt})" if R[r, c] < 1 else txt, ha="center", va="center", fontsize=7.5,
-                        color="white" if E[r, c] > 3 else INK)
+        draw_cells(ax, E, R, 7.5)
         ax.axhline(len(PARAMS) - 0.5, color="white", lw=4)
         for c in range(1, 15):
             if A.PAIRS[c][0] != A.PAIRS[c - 1][0]:
@@ -224,10 +233,7 @@ def all_spectra(pdf, z):
         ax.tick_params(length=0)
         for s_ in ax.spines.values():
             s_.set_visible(False)
-    cax = fig.add_axes([0.93, 0.04, 0.01, 0.9])
-    cb = fig.colorbar(im, cax=cax)
-    cb.set_label("effect in % of max|D(fiducial)| of the spectrum (worst gravity model)", color=MUTED)
-    cb.outline.set_visible(False)
+    class_legend(fig, 0.999)
     fig.suptitle(f"All 15 spectra: how much each parameter changes the mu - GR change D, z = {z:g}", x=0.02, ha="left",
                  fontsize=14, color=INK, y=0.985)
     fig.text(0.02, 0.955, "Colour and number: |D(cosmology) - D(fiducial)| in % of max|D(fiducial)| of that spectrum, worst "
@@ -238,14 +244,118 @@ def all_spectra(pdf, z):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------------------------- dot plots
+N_COLOURS = {1.0: "#86b6ef", 2.0: "#3987e5", 3.0: "#1c5cab", 4.0: "#0d366b"}  # Sequential blue by n (light: early MG)
+SCALE_COLOURS = ["#2a78d6", "#eb6834", "#1baf7a"]  # Large, intermediate, small scales (categorical slots 1-3)
+NOISE_COLOUR = "#d9d8d2"
+
+
+def _style(ax, xlim=(0.03, 100)):
+    ax.set_xscale("log")
+    ax.set_xlim(*xlim)
+    ax.grid(True, axis="x", color=GRID, lw=0.6)
+    ax.tick_params(colors=MUTED, labelsize=8, length=0)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(MUTED)
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
+
+
+def overview_dots(pdf, z):
+    """Main spectra: per parameter, one dot per gravity model (colour: n), the noise of one run as a grey band."""
+    ms = models()
+    rows = [(name, [lo_l, hi_l]) for name, lo_l, hi_l in PARAMS] + [(name, [l]) for name, l in JOINT]
+    ypos = list(range(len(PARAMS))) + [len(PARAMS) + 0.8 + i for i in range(len(JOINT))]
+    fig, axes = plt.subplots(1, len(RANGES), figsize=(18, 8.5), sharey=True)
+    fig.subplots_adjust(left=0.13, right=0.99, top=0.83, bottom=0.09, wspace=0.08)
+    for ax, (title, lo, hi) in zip(axes, RANGES):
+        N = np.array([noise(z, m, lo, hi) for m, _, _ in ms])
+        ax.axvspan(N.min(), N.max(), color=NOISE_COLOUR, lw=0, zorder=0)
+        ax.axvspan(0.03, N.min(), color="#efeeea", lw=0, zorder=0)
+        for (name, labels), y in zip(rows, ypos):
+            E = np.array([max(effect(z, l, m, lo, hi) for l in labels) for m, _, _ in ms])
+            ax.plot([E.min(), E.max()], [y, y], color=MUTED, lw=1.2, zorder=1)
+            for (m, a, n), e in zip(ms, E):
+                ax.plot(e, y, "o" if a > 0 else "s", ms=6.5, color=N_COLOURS[n], mec="white", mew=1.2, zorder=2)
+            ax.text(min(E.max() * 1.25, 80), y, f"{E.max():.1f}", va="center", fontsize=8, color=INK)
+        ax.axhline(len(PARAMS) - 0.1, color=GRID, lw=1)
+        _style(ax)
+        ax.set_title(title, fontsize=11, color=INK, loc="left")
+        ax.set_xlabel("change of D, % of its size (log scale)", color=MUTED, fontsize=9)
+    axes[0].set_yticks(ypos)
+    axes[0].set_yticklabels([r[0] for r in rows], fontsize=10, color=INK)
+    axes[0].invert_yaxis()
+    handles = [matplotlib.lines.Line2D([], [], ls="", marker="o", ms=7, color=N_COLOURS[n], label=f"n = {n:g}")
+               for n in sorted(N_COLOURS)]
+    handles += [matplotlib.lines.Line2D([], [], ls="", marker="o", ms=7, color=MUTED, label="A > 0"),
+                matplotlib.lines.Line2D([], [], ls="", marker="s", ms=7, color=MUTED, label="A < 0"),
+                matplotlib.patches.Patch(color=NOISE_COLOUR, label="noise of one run (range over models)")]
+    fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.13, 0.905), ncol=7, frameon=False, fontsize=9.5)
+    fig.suptitle(f"Which parameters change the mu - GR change D, for which gravity models?  z = {z:g}", x=0.01,
+                 ha="left", fontsize=14, color=INK, y=0.985)
+    fig.text(0.01, 0.935, "One dot per gravity model (worst of the main spectra 11, dd, d2d2, s2s2 and of -5 / +5 sigma; "
+             "wa: +3); the number is the largest. Inside or left of the grey band: drowned in the noise of one run. "
+             "Upper block: one parameter at a time; lower block: joint extremes.", fontsize=9, color=MUTED)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def all_spectra_dots(pdf, z):
+    """All 15 spectra in the 15-spectra layout: per parameter the change of D (worst gravity model) at large,
+    intermediate and small scales, and the noise of one run (grey tick, small scales)."""
+    ms = [m for m, _, _ in models()]
+    names = [r"1", r"\delta", r"\delta^2", r"s^2", r"\nabla^2\delta"]
+    seeds = ("fiducial_s1002", "fiducial_s1003")
+    fig, axes = plt.subplots(5, 5, figsize=(19, 13))
+    fig.subplots_adjust(left=0.06, right=0.99, top=0.9, bottom=0.05, wspace=0.12, hspace=0.45)
+    for ax in axes.flat:
+        ax.axis("off")
+    for p, (i, j) in enumerate(A.PAIRS):
+        ax = axes[i, j]
+        ax.axis("on")
+        for r, (name, lo_l, hi_l) in enumerate(PARAMS):
+            vals, nzs = [], []
+            for _, lo, hi in RANGES:
+                E, Nz = 0.0, 0.0
+                for m in ms:
+                    k, Df = D_cached(z, "fiducial", m)
+                    sel = (k > lo) & (k <= hi)
+                    scale = np.max(np.abs(Df[p][(k > 0.01) & (k < 1.0)]))
+                    ch = lambda lab: 100 * np.mean(np.abs(D_cached(z, lab, m)[1][p][sel] - Df[p][sel])) / scale
+                    E = max(E, ch(lo_l), ch(hi_l))
+                    Nz = max(Nz, np.mean([ch(s_) for s_ in seeds]) / np.sqrt(2))
+                vals.append(E)
+                nzs.append(Nz)
+            ax.plot([min(vals), max(vals)], [r, r], color=GRID, lw=1.2, zorder=1)
+            ax.plot([nzs[2], nzs[2]], [r - 0.35, r + 0.35], color="#a8a7a2", lw=2.5, zorder=1)
+            for c, v in zip(SCALE_COLOURS, vals):
+                ax.plot(v, r, "o", ms=5, color=c, mec="white", mew=0.8, zorder=2)
+        _style(ax, (0.03, 60))
+        ax.set_ylim(len(PARAMS) - 0.5, -0.5)
+        ax.set_yticks(range(len(PARAMS)))
+        ax.set_yticklabels([n for n, _, _ in PARAMS] if j == i else [], fontsize=8, color=INK)
+        ax.set_title(rf"${names[i]} \times {names[j]}$", fontsize=10, color=INK, pad=3)
+    handles = [matplotlib.lines.Line2D([], [], ls="", marker="o", ms=7, color=c, label=t.split(",")[0] + ":" +
+                                       t.split(",")[1]) for c, (t, _, _) in zip(SCALE_COLOURS, RANGES)]
+    handles.append(matplotlib.lines.Line2D([], [], color="#a8a7a2", lw=2.5, label="noise of one run (small scales)"))
+    fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.06, 0.08), ncol=1, frameon=False, fontsize=10)
+    fig.suptitle(f"All 15 spectra: change of the mu - GR change D per parameter (+-5 sigma), z = {z:g}", x=0.01,
+                 ha="left", fontsize=14, color=INK, y=0.985)
+    fig.text(0.01, 0.94, "x: change of D in % of its size (log scale), worst of -5 / +5 sigma and of the 7 gravity models. "
+             "A dot left of the grey tick is drowned in the noise of one run. Joint extremes: pages 1-2.",
+             fontsize=9.5, color=MUTED)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     plt.rcParams.update({"figure.facecolor": "#fcfcfb", "axes.facecolor": "#fcfcfb", "font.size": 10})
     path = os.path.join(ROOT, "figures", "mu_boost", "cosmology.pdf")
     with PdfPages(path) as pdf:
         for z in (0.0, 1.0):
-            overview(pdf, z)
+            overview_dots(pdf, z)
         for z in (0.0, 1.0):
             kdependence(pdf, z)
         for z in (0.0, 1.0):
-            all_spectra(pdf, z)
+            all_spectra_dots(pdf, z)
     print("Saved", path)
