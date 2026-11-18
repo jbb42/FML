@@ -10,7 +10,7 @@ against another, divided by sqrt(2) (the noise of one run).
 
 Writes figures/mu_boost/cosmology.pdf:
   page 1-2  overview (z = 0, z = 1): parameters x gravity models, colour = effect / noise (relevance), number = effect
-            in %; large scales (k < 0.3) and small scales (0.6 < k < 1)
+            in %; large (k < 0.3), intermediate (0.3 < k < 0.6) and small scales (0.6 < k < 1)
   page 3-4  k dependence (z = 0, z = 1): rows = parameters, columns = main spectra; signed effect
             (D_hi - D_lo) / 2 in % of max|D_fid| per model (colour: n, solid: A > 0, dashed: A < 0), grey: +-noise
     python3 scripts/plot_mu_cosmology.py
@@ -39,7 +39,8 @@ PARAMS = [(r"$\Omega_b$", "Ob_lo", "Ob_hi"), (r"$n_s$", "ns_lo", "ns_hi"), (r"$A
           (r"$w_a$", "wa_lo", "wa_hi"), (r"$w_0$", "w0_lo", "w0_hi")]
 JOINT = [(r"$w_0$-, $w_a$-", "w0lo_walo"), (r"$w_0$+, $w_a$-", "w0hi_walo"), (r"$w_0$-, $w_a$+", "w0lo_wahi"),
          ("all +", "all_hi"), ("all -", "all_lo"), ("mixed a", "mix_a"), ("mixed b", "mix_b")]
-RANGES = [("large scales, 0.01 < k < 0.3", 0.01, 0.3), ("small scales, 0.6 < k < 1", 0.6, 1.0)]
+RANGES = [("large scales, 0.01 < k < 0.3", 0.01, 0.3), ("intermediate scales, 0.3 < k < 0.6", 0.3, 0.6),
+          ("small scales, 0.6 < k < 1", 0.6, 1.0)]
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
 
 
@@ -79,7 +80,7 @@ def model_label(m, a, n):
 def overview(pdf, z):
     ms = models()
     rows = [(name, [lo_l, hi_l]) for name, lo_l, hi_l in PARAMS] + [(name, [l]) for name, l in JOINT]
-    fig, axes = plt.subplots(1, 2, figsize=(15, 8.2), sharey=True)
+    fig, axes = plt.subplots(1, len(RANGES), figsize=(21, 8.2), sharey=True)
     fig.subplots_adjust(left=0.1, right=0.9, top=0.84, bottom=0.12, wspace=0.06)
     vmax = 10.0
     for ax, (title, lo, hi) in zip(axes, RANGES):
