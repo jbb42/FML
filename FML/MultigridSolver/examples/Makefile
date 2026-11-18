@@ -16,7 +16,7 @@ TARGETS := mgsolver
 include ../../Makefile.config
 
 FML_MODULES := Global MultigridSolver FileUtils
-EXTRA_CLEAN := contsolver poissonsolver fofrsolver symm dgp recon
+EXTRA_CLEAN := contsolver poissonsolver fofrsolver symm dgp recon amrpoisson amrdgp amrsymmetron amrdilaton
 
 mgsolver: GenericExample.o Global.o
 	$(LINK_EXE)
@@ -26,6 +26,22 @@ contsolver: ContinuityExample.o Global.o
 	$(LINK_EXE)
 
 poissonsolver: PoissonExample.o Global.o
+	$(LINK_EXE)
+
+# Multigrid on an adaptively refined grid (AMRMultiGridSolver.h): mpirun -np 4 ./amrpoisson [2|3]
+amrpoisson: AMRPoissonExample.o Global.o
+	$(LINK_EXE)
+
+# DGP on an adaptively refined grid (AMRDGPSolver.h) against the exact spherical solution: mpirun -np 4 ./amrdgp
+amrdgp: AMRDGPExample.o Global.o
+	$(LINK_EXE)
+
+# The symmetron on an adaptively refined grid (AMRSymmetronSolver.h): mpirun -np 4 ./amrsymmetron [quick]
+amrsymmetron: AMRSymmetronExample.o Global.o
+	$(LINK_EXE)
+
+# The dilaton on an adaptively refined grid (AMRDilatonSolver.h): mpirun -np 4 ./amrdilaton [quick]
+amrdilaton: AMRDilatonExample.o Global.o
 	$(LINK_EXE)
 
 fofrsolver: FofrExample.o Global.o

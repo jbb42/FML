@@ -1,4 +1,4 @@
-#include <FML/FileUtils/FileUtils.h>
+#include <FML/ExampleData/ExampleData.h>
 #include <FML/FriendsOfFriends/FoF.h>
 #include <FML/Global/Global.h>
 #include <FML/MPIParticles/MPIParticles.h>
@@ -31,45 +31,37 @@ int main() {
     const int NDIM = 3;
 
     if (FML::ThisTask == 0)
-        std::cout << "Reading particles from file\n";
+        std::cout << "Making particles\n";
 
     //==================================================================
-    // Read ascii file with [x,y,z]
+    // A toy clustered box with halos to find (every task makes the same particles). To use your own, read them
+    // e.g. with FML::FILEUTILS::loadtxt or read_regular_ascii (ascii [x, y, z])
     //==================================================================
     const double box = 1024.0;
-    const std::string filename = "../../../TestData/particles_B1024.txt";
-    const int ncols = 3;
-    const int nskip_header = 1; // the file starts with a header line
-    const std::vector<int> cols_to_keep{0, 1, 2};
-    auto data = FML::FILEUTILS::read_regular_ascii(filename, ncols, cols_to_keep, nskip_header);
+    const auto data = FML::EXAMPLEDATA::clustered_box(100000, box);
+    if (FML::ThisTask == 0)
+        std::cout << data.nhalos << " halos with " << data.npart_in_halos << " of the " << data.particles.size()
+                  << " particles\n";
 
-    // Create particles and scale to [0,1)
+    // Create particles with positions scaled to [0,1) (those in the domain of this task)
     std::vector<Particle<NDIM>> part;
-    part.reserve(data.size());
-    for (auto & pos : data) {
-        for (auto & x : pos) {
-            x /= box;
-            if (x < 0.0)
-                x += 1.0;
-            if (x >= 1.0)
-                x -= 1.0;
-        }
+    for (auto & p : data.particles) {
+        double pos[NDIM];
+        for (int idim = 0; idim < NDIM; idim++)
+            pos[idim] = p.pos[idim] / box;
         if (pos[0] >= FML::xmin_domain and pos[0] < FML::xmax_domain)
-            part.push_back(Particle<NDIM>(pos.data()));
+            part.push_back(Particle<NDIM>(pos));
     }
 
     //==================================================================
     // Create MPI particles by letting each task keep only the particles that falls in its domain
     //==================================================================
     FML::PARTICLE::MPIParticles<Particle<NDIM>> p;
-    const bool all_tasks_have_the_same_particles = false;
-    const auto nalloc_per_task = not all_tasks_have_the_same_particles ? part.size() : part.size() / FML::NTasks * 2;
-    p.create(part.data(),
-             part.size(),
-             nalloc_per_task,
-             FML::xmin_domain,
-             FML::xmax_domain,
-             all_tasks_have_the_same_particles);
+    // Replicated: every task has the same particles (each keeps those it owns); Distributed: different ones
+    const auto input = FML::PARTICLE::Input::Distributed;
+    const auto nalloc_per_task =
+        input != FML::PARTICLE::Input::Replicated ? part.size() : part.size() / FML::NTasks * 2;
+    p.create(part.data(), part.size(), nalloc_per_task, input);
     p.info();
 
     //==================================================================

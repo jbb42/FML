@@ -96,6 +96,110 @@ void test_growing_modes() {
         check_local(normalization_independent, "growth normalization is consistent across all timestep spacings");
     }
 }
+/// EdS with a constant velocity friction Gamma (dv/dlna = -Gamma v + force): D1 = a^p, D2 = c2 a^2p (see
+/// Cosmology/Growth/tests/test_growth.cpp) and the friction integral I(a) = Gamma ln a. FastPM must follow the linear
+/// mode and BullFrog the linear and second-order modes exactly at any step size; Quinn and Tassev converge to them at
+/// second order (without the friction integral they do not). A free particle (no force) slows down as
+/// v = v0 e^-(I(a) - I(amin)) exactly with Quinn, Tassev and FastPM, and with Quinn also its position is exact
+void test_friction() {
+    const double Gamma = 0.7, b = 0.5 + Gamma;
+    const double p = 0.5 * (-b + std::sqrt(b * b + 6.0));
+    const double c2 = -1.5 / (4 * p * p + 2 * b * p - 1.5);
+    GrowthHistory growth([=](double a) { return std::pow(a, p); },
+                         [=](double) { return p; },
+                         [=](double a) { return c2 * std::pow(a, 2 * p); },
+                         [=](double) { return 2 * p; });
+    auto friction_integral = [=](double a) { return Gamma * std::log(a); };
+    const double amin = 0.05, amax = 1.0;
+
+    // Evolve the linear (x1) and second-order (x2) modes as in test_growing_modes; returns the largest relative error
+    // of x1, v1 (and of x2, v2 with second) at amax
+    auto evolve = [&](TimestepMethod method, ScaleFactorSpacing spacing, int nsteps, bool with_friction, bool second) {
+        TimestepOptions options;
+        options.method = method;
+        options.spacing = spacing;
+        options.spacing_power = 0.4;
+        options.cola_nLPT = -2.5;
+        std::function<double(double)> I;
+        if (with_friction)
+            I = friction_integral;
+        TimeStepping stepping(options, eds_H, eds_force, growth, I);
+        double x1 = growth.linear(amin), x2 = growth.second_order(amin);
+        double v1 = growth.linear_momentum(amin, eds_H(amin));
+        double v2 = v1 * growth.second_order_slope(amin);
+        for (auto s : stepping.steps(amin, amax, nsteps)) {
+            const double D = growth.linear(s.apos), Gf = eds_force(s.apos) * D;
+            v1 = s.velocity_scale * v1 + s.delta_time_kick * Gf;
+            v2 = s.velocity_scale * v2 + s.delta_time_kick * Gf * (x2 / D - D);
+            x1 += s.delta_time_drift * v1;
+            x2 += s.delta_time_drift * v2;
+        }
+        const double v1true = growth.linear_momentum(amax, eds_H(amax));
+        double err = std::max(std::fabs(x1 / growth.linear(amax) - 1), std::fabs(v1 / v1true - 1));
+        if (second)
+            err = std::max({err,
+                            std::fabs(x2 / growth.second_order(amax) - 1),
+                            std::fabs(v2 / (v1true * growth.second_order_slope(amax)) - 1)});
+        return err;
+    };
+
+    bool fastpm = true, bullfrog = true;
+    for (auto spacing : {ScaleFactorSpacing::Linear,
+                         ScaleFactorSpacing::Logarithmic,
+                         ScaleFactorSpacing::Powerlaw,
+                         ScaleFactorSpacing::GrowthFactor})
+        for (int count : {1, 4, 17}) {
+            fastpm = fastpm && evolve(TimestepMethod::FastPM, spacing, count, true, false) < 2e-9;
+            bullfrog = bullfrog && evolve(TimestepMethod::BullFrog, spacing, count, true, true) < 2e-9;
+        }
+    check_local(fastpm, "friction: FastPM follows the linear growing mode at coarse steps");
+    check_local(bullfrog, "friction: BullFrog follows the linear and second-order modes at coarse steps");
+
+    // A free particle: v = e^-(I(a) - I(amin)) = (amin/a)^Gamma, x = int_amin^amax (amin/a)^Gamma / (a^3 E) da with
+    // a^3 E = a^(3/2) (no force: FastPM's linear-mode kick is also zero, the force is)
+    const double x_free = (std::pow(amax, -0.5 - Gamma) - std::pow(amin, -0.5 - Gamma)) / (-0.5 - Gamma) *
+                          std::pow(amin, Gamma);
+    for (auto method : {TimestepMethod::Quinn, TimestepMethod::Tassev, TimestepMethod::FastPM}) {
+        for (bool with_friction : {true, false}) {
+            TimestepOptions options;
+            options.method = method;
+            options.cola_nLPT = -2.5;
+            std::function<double(double)> I;
+            if (with_friction)
+                I = friction_integral;
+            TimeStepping stepping(options, eds_H, eds_force, growth, I);
+            double x = 0.0, v = 1.0;
+            for (auto s : stepping.steps(amin, amax, 7)) {
+                v *= s.velocity_scale;
+                x += s.delta_time_drift * v;
+            }
+            const std::string name = method == TimestepMethod::Quinn ? "Quinn" :
+                                     method == TimestepMethod::Tassev ? "Tassev" :
+                                                                        "FastPM";
+            const bool v_exact = near(v, std::pow(amin / amax, Gamma), 1e-12);
+            if (with_friction) {
+                check_local(v_exact, "friction: " + name + " slows a free particle down exactly");
+                if (method == TimestepMethod::Quinn)
+                    check_local(near(x, x_free, 1e-7), "friction: Quinn moves a free particle exactly");
+            } else
+                check_local(not v_exact, "friction: " + name + " without the friction integral does not");
+        }
+    }
+
+    for (auto method : {TimestepMethod::Quinn, TimestepMethod::Tassev}) {
+        const double e1 = evolve(method, ScaleFactorSpacing::Linear, 20, true, false);
+        const double e2 = evolve(method, ScaleFactorSpacing::Linear, 40, true, false);
+        const double e4 = evolve(method, ScaleFactorSpacing::Linear, 80, true, false);
+        const double e_nofriction = evolve(method, ScaleFactorSpacing::Linear, 80, false, false);
+        const std::string name = method == TimestepMethod::Quinn ? "Quinn" : "Tassev";
+        std::cout << "       friction: " << name << " error with 20, 40, 80 steps: " << e1 << " " << e2 << " " << e4
+                  << " (80 steps without the friction integral: " << e_nofriction << ")\n";
+        // (As without friction, where the errors are 0.7 times these; Tassev is meant for the COLA frame)
+        check_local(e2 < e1 / 3.0 and e4 < e2 / 3.0 and e4 < (method == TimestepMethod::Quinn ? 1e-3 : 1e-2),
+                    "friction: " + name + " converges to the growing mode at second order");
+        check_local(e_nofriction > 10 * e4, "friction: " + name + " without the friction integral is wrong");
+    }
+}
 /// Flat LCDM with OmegaM = 0.3 (the cosmology is a model of FML's background module, made from parameters)
 std::shared_ptr<Cosmology> make_test_cosmology() {
     FML::UTILS::ParameterMap p;
@@ -134,6 +238,112 @@ class TestGravity : public GravityModel<3> {
         compute_force_from_total_density(density, 1.5 * cosmo->get_OmegaM() * a, method, force, options);
     }
 };
+
+/// Several species with different frictions that feel the same force (dark scattering with CDM and baryon particles:
+/// the CDM has the friction, the baryons none). EdS with a constant Gamma on species c (weight f_c) and none on b: the
+/// growing mode is D_s = A_s a^p with A_s (p^2 + (1/2 + Gamma_s) p) = 3/2 (f_c A_c + f_b A_b). One TimeStepping per
+/// species (its friction integral, growth history and the growth of the force) and restep of reference steps: FastPM
+/// follows both species exactly at any step size, Quinn converges at second order. restep of a TimeStepping's own
+/// steps gives them back (to round-off); BullFrog has no restep
+void test_species_friction() {
+    const double Gamma = 0.8, f_c = 0.84, f_b = 1.0 - f_c;
+    // A_b = 1, A_c = (p^2 + p/2) / (p^2 + (1/2 + Gamma) p), and p^2 + p/2 = 3/2 (f_c A_c + f_b): bisection in p
+    auto A_c_of = [=](double p) { return (p * p + 0.5 * p) / (p * p + (0.5 + Gamma) * p); };
+    auto residual = [=](double p) { return p * p + 0.5 * p - 1.5 * (f_c * A_c_of(p) + f_b); };
+    double plo = 0.1, phi = 1.0;
+    for (int i = 0; i < 200; i++) {
+        const double pm = 0.5 * (plo + phi);
+        (residual(pm) < 0 ? plo : phi) = pm;
+    }
+    const double p = 0.5 * (plo + phi), A_c = A_c_of(p), A_cb = f_c * A_c + f_b;
+    auto history = [=](double A) {
+        return GrowthHistory([=](double a) { return A * std::pow(a, p); },
+                             [=](double) { return p; },
+                             [=](double a) { return -3.0 / 7.0 * A * A * std::pow(a, 2 * p); },
+                             [=](double) { return 2 * p; });
+    };
+    auto force_growth = [=](double a) { return A_cb * std::pow(a, p); };
+    auto I_c = [=](double a) { return Gamma * std::log(a); };
+    const double amin = 0.05, amax = 1.0;
+
+    auto evolve = [&](TimestepMethod method, ScaleFactorSpacing spacing, int nsteps) {
+        TimestepOptions options;
+        options.method = method;
+        options.spacing = spacing;
+        options.spacing_power = 0.4;
+        // The reference steps (their scale factors) from the CDM+baryon fluid; the species' coefficients by restep
+        TimeStepping reference(options, eds_H, eds_force, history(A_cb), {}, {});
+        TimeStepping cdm(options, eds_H, eds_force, history(A_c), I_c, force_growth);
+        TimeStepping baryons(options, eds_H, eds_force, history(1.0), {}, force_growth);
+        const auto steps = reference.steps(amin, amax, nsteps);
+        const auto sc = cdm.restep(steps), sb = baryons.restep(steps);
+        double xc = A_c * std::pow(amin, p), xb = std::pow(amin, p);
+        double vc = history(A_c).linear_momentum(amin, eds_H(amin)), vb = history(1.0).linear_momentum(amin, eds_H(amin));
+        for (size_t i = 0; i < steps.size(); i++) {
+            const double F = eds_force(steps[i].apos) * (f_c * xc + f_b * xb);
+            vc = sc[i].velocity_scale * vc + sc[i].delta_time_kick * F;
+            vb = sb[i].velocity_scale * vb + sb[i].delta_time_kick * F;
+            xc += sc[i].delta_time_drift * vc;
+            xb += sb[i].delta_time_drift * vb;
+        }
+        return std::max({std::fabs(xc / (A_c * std::pow(amax, p)) - 1),
+                         std::fabs(xb / std::pow(amax, p) - 1),
+                         std::fabs(vc / history(A_c).linear_momentum(amax, eds_H(amax)) - 1),
+                         std::fabs(vb / history(1.0).linear_momentum(amax, eds_H(amax)) - 1)});
+    };
+
+    bool fastpm = true;
+    for (auto spacing : {ScaleFactorSpacing::Linear,
+                         ScaleFactorSpacing::Logarithmic,
+                         ScaleFactorSpacing::Powerlaw,
+                         ScaleFactorSpacing::GrowthFactor})
+        for (int count : {1, 4, 17})
+            fastpm = fastpm && evolve(TimestepMethod::FastPM, spacing, count) < 2e-9;
+    check_local(fastpm, "species friction: FastPM follows both species exactly at coarse steps (p = " +
+                            std::to_string(p) + ", A_c = " + std::to_string(A_c) + ")");
+    const double e1 = evolve(TimestepMethod::Quinn, ScaleFactorSpacing::Linear, 20);
+    const double e2 = evolve(TimestepMethod::Quinn, ScaleFactorSpacing::Linear, 40);
+    const double e4 = evolve(TimestepMethod::Quinn, ScaleFactorSpacing::Linear, 80);
+    std::cout << "       species friction: Quinn error with 20, 40, 80 steps: " << e1 << " " << e2 << " " << e4 << "\n";
+    check_local(e1 / e2 > 3.5 and e2 / e4 > 3.5 and e4 < 2e-3,
+                "species friction: Quinn converges to the two-species growing mode at second order");
+
+    // restep of a TimeStepping's own steps gives them back (all KDK methods and spacings, with and without friction;
+    // to round-off: steps() of Quinn/Tassev recompute a_min of the first step as exp(log(a_min)) with log spacing)
+    bool same = true;
+    for (auto method : {TimestepMethod::Quinn, TimestepMethod::Tassev, TimestepMethod::FastPM})
+        for (auto spacing : {ScaleFactorSpacing::Linear,
+                             ScaleFactorSpacing::Logarithmic,
+                             ScaleFactorSpacing::Powerlaw,
+                             ScaleFactorSpacing::GrowthFactor})
+            for (bool friction : {false, true}) {
+                TimestepOptions options;
+                options.method = method;
+                options.spacing = spacing;
+                options.spacing_power = 0.4;
+                options.cola_nLPT = -2.5;
+                TimeStepping s(options, eds_H, eds_force, history(A_c), friction ? std::function<double(double)>(I_c) : nullptr);
+                const auto a = s.steps(amin, amax, 7), b = s.restep(a);
+                for (size_t i = 0; i < a.size(); i++)
+                    same = same and a[i].apos == b[i].apos and a[i].apos_new == b[i].apos_new and
+                           a[i].avel == b[i].avel and a[i].avel_new == b[i].avel_new and
+                           near(a[i].delta_time_drift, b[i].delta_time_drift, 1e-12) and
+                           near(a[i].delta_time_kick, b[i].delta_time_kick, 1e-12) and
+                           a[i].velocity_scale == b[i].velocity_scale;
+            }
+    check_local(same, "restep of a TimeStepping's own steps gives them back (to round-off)");
+    TimestepOptions bf;
+    bf.method = TimestepMethod::BullFrog;
+    TimeStepping bullfrog(bf, eds_H, eds_force, history(1.0));
+    bool threw = false;
+    try {
+        bullfrog.restep(bullfrog.steps(amin, amax, 4));
+    } catch (const std::invalid_argument &) {
+        threw = true;
+    }
+    check_local(threw, "restep is refused for BullFrog");
+}
+
 void test_schedules() {
     // Nonlinear D(a) ensures growth spacing tests an actual inverse, rather than D=a.
     GrowthHistory growth([](double a) { return std::pow(a, 0.8); }, [](double) { return 0.8; });
@@ -277,6 +487,8 @@ void test_contracts() {
 int main() {
     test_analytic_coefficients();
     test_growing_modes();
+    test_friction();
+    test_species_friction();
     test_schedules();
     test_cola_adapter();
     test_cola_force_options();

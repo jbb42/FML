@@ -37,11 +37,12 @@
 //   C_ell^phiphi   = 4 pi int dk/k P_R(k) phi_ell(k)^2
 // (Phi_ell^nu and sin_K in a curved universe), followed by the lensed spectra from Lensing::lens.
 //
-// Nonlinear (Halofit, HalofitBird, HMcode2020): P_NL = P_L * ratio(x, k); the
+// Nonlinear (Halofit, HalofitBird, HMcode2016, HMcode2020, AxionHMcode, EE2, JBDBoost): P_NL = P_L * ratio(x, k); the
 // Weyl potential in the Limber part of C_ell^phiphi is scaled by sqrt(P_NL/P_L) (as CLASS), so the lensed
 // spectra include nonlinear lensing.
 //
-// Matter power spectrum of the comoving-gauge density contrast of CDM + baryons (+ massive neutrinos):
+// Matter power spectrum of the comoving-gauge density contrast of CDM + baryons (+ massive neutrinos, + an ultralight
+// axion with m >= 1e-25 eV):
 //   Delta_M(k,x) = sum_i rho_i [delta_i - 3 (1 + w_i) Hp v_i/(ck)] / sum_i rho_i,   P(k,x) = 2 pi^2 / k^3 P_R(k)
 //   Delta_M^2
 //
@@ -85,8 +86,11 @@ namespace FML::COSMOLOGY {
 
     class Tensors;
     class Halofit;
-    class HMcode;
-    class ReACT;
+    namespace HALOMODEL {
+        class HMcode2016;
+        class HMcode2020;
+        class ReactionTable;
+    }
 
     struct PowerSpectrumOptions {
         int ell_max = 2000;
@@ -103,12 +107,42 @@ namespace FML::COSMOLOGY {
         // there it is extrapolated with the asymptotic CDM shape Phi ~ ln(beta k)/k^2 (beta from the
         // logarithmic slope at k_max).
         int lensing_limber_ell = 30;
-        // Nonlinear matter power for the lensing potential and P_NL(k) (Halofit.h, HMcode.h)
-        enum class Nonlinear { None, Halofit, HalofitBird, HMcode2020, ReACT };
+        // Nonlinear matter power for the lensing potential and P_NL(k) (Halofit.h, FML/HaloModel/HMcode2016.h, HMcode2020.h,
+        // FML/AxionHMcode/AxionHMcode.h for the mixed axion dark matter of model axion)
+        enum class Nonlinear { None, Halofit, HalofitBird, HMcode2016, HMcode2020, ReACT, AxionHMcode, EE2, JBDBoost };
         Nonlinear nonlinear = Nonlinear::None;
-        // ReACT reactions are computed only up to z <= 2.5. Above that, use the matched GR pseudo baseline.
+        // HMcode-2016 baryonic feedback (CAMB HMCode_A_baryon, HMCode_eta_baryon; also for jbd_boost_gr = hmcode2016):
+        // concentration amplitude A and bloating eta = eta0 - 0.3 sigma_8(z). Defaults: dark matter only. With
+        // hmcode2016_eta0_from_A, eta0 = 0.98 - 0.12 A (the one-parameter model of KiDS-1000, Joachimi et al. 2021)
+        double hmcode2016_A = 3.13;
+        double hmcode2016_eta0 = 0.603;
+        bool hmcode2016_eta0_from_A = false;
+        double hmcode2016_eta0_value() const { return hmcode2016_eta0_from_A ? 0.98 - 0.12 * hmcode2016_A : hmcode2016_eta0; }
+        // EE2: the EuclidEmulator2 boost (Euclid Collaboration: Knabenhans et al. 2021; lcdm and w0wa, flat; its
+        // parameter ranges), tabulated at ee2_n_z redshifts in [0, 10] (uniform in ln a); linear above z = 10.
+        int ee2_n_z = 40;
+        // JBDBoost (model jbd; Sletmoen & Winther 2024, arXiv:2403.03786, their bd.py): P_BD = P_BD^lin
+        // P_GR / P_GR^lin, with the GR (lcdm) universe of the same physical densities, n_s and sigma_8 today and
+        // h_GR = h_BD sqrt(phi_ini), compared at the same k / (h/Mpc); P_GR / P_GR^lin from the method jbd_boost_gr
+        // (EE2 as the paper, HMcode2020, HMcode2016, Halofit or HalofitBird). 1% for omega >= 100, z <= 3, k <= 1 h/Mpc
+        // (2% to 5 h/Mpc) against N-body simulations.
+        Nonlinear jbd_boost_gr = Nonlinear::EE2;
+        // AxionHMcode (Vogt et al. 2022; Dome et al. 2024 with axionhmcode_basic = false): P_NL/P_L tabulated at
+        // axionhmcode_n_z redshifts in [0, axionhmcode_z_max] (uniform in ln a) and 1e-3 to 100 h/Mpc. Its Dome
+        // calibration covers z = 1 - 8, axion fractions of the matter 0.01 - 0.3 and m = 10^-24.5 eV: elsewhere it is an
+        // extrapolation, which axionhmcode_allow_extrapolation = false turns into an error
+        bool axionhmcode_basic = false;
+        bool axionhmcode_allow_extrapolation = true;
+        double axionhmcode_z_max = 10.0;
+        int axionhmcode_n_z = 24;
+        // ReACT: the halo-model reaction (computed natively, PowerSpectrumReACT.cpp) times HMcode-2020 of the matched
+        // pseudo cosmology, tabulated at react_n_z redshifts (uniform in ln a, z <= react_z_max <= 10; validated
+        // against ReACT for z <= 2) and react_n_k k from 1e-5 to 100 h/Mpc, with react_mass_loop spherical collapses
+        // per redshift. Above react_z_max the matched pseudo with R = 1. react_compat_gamma3: ReACT's f(R)
+        // third-order screening term (1/3 of the correct one, ACTio-ReACTio's BeyondLCDM.cpp), only to reproduce ReACT
         int react_n_z = 12, react_n_k = 256, react_mass_loop = 30;
         double react_z_max = 2.5;
+        bool react_compat_gamma3 = false;
         std::vector<int> ells; // ell values where C_ell is computed (default list if empty)
         int ell_step = 25;     // spacing of the default list above ell = 100
 
@@ -206,6 +240,15 @@ namespace FML::COSMOLOGY {
         double get_matter_power_spectrum_cb(double x, double k) const;
         double get_Delta_M(double x, double k, int comp = 0) const;
         double get_Delta_cb(double x, double k, int comp = 0) const;
+        // Ultralight axion (PerturbationModel_Axion.h): its comoving-gauge density contrast and power spectrum [m^3].
+        // It is part of the total matter (Delta_M, P_m) when it is dark matter, m >= 1e-25 eV (axionCAMB's
+        // convention; lighter axions are dark-energy like); P_cb is the cold (CDM + baryon) spectrum either way.
+        bool has_axions() const;
+        bool axions_in_matter() const;
+        double get_Delta_axion(double x, double k, int comp = 0) const;
+        double get_matter_power_spectrum_axion(double x, double k) const;
+        // ... for any k > 0 (Delta_axion / Delta_cb held at the ends of the k-range, P_cb extrapolated as below)
+        double get_matter_power_spectrum_axion_extrapolated(double x, double k) const;
         // Nonlinear total-matter power (= linear, extrapolated, if options.nonlinear = None) [m^3]
         double get_matter_power_spectrum_nonlinear(double x, double k) const;
 
@@ -220,6 +263,16 @@ namespace FML::COSMOLOGY {
         std::vector<double> get_xi_matter(double x, const std::vector<double> & r, double R_smooth = 0.0) const;
         double get_sigma_R(double x, double R) const; // rms of Delta_M in top-hat spheres of radius R [m]
         double get_sigma8(double x = 0.0) const;      // R = 8 Mpc/h
+        // sigma_8 of the CDM + baryon density (Delta_cb) and f sigma_8 = sigma_8,vd^2 / sigma_8,cb (CAMB's
+        // definition, used for the redshift-space distortion measurements): sigma_8,vd^2 = int dk/k Delta_cb^2 f(k)
+        // W^2(k R_8), with the growth rate f(k) = dln Delta_cb/dx (the velocity divergence over -aH in linear theory;
+        // equal to f sigma_8 for scale-independent growth). f(k) is held at the ends of the computed k-range (the
+        // extrapolation of Delta_cb there does not depend on x)
+        double get_sigma8_cb(double x = 0.0) const;
+        double get_fsigma8(double x = 0.0) const;
+        // sigma_8 of the velocity divergence of the CDM + baryons in units of -aH (int dk/k Delta_cb^2 f(k)^2 W^2):
+        // sigma_8,thetatheta / sigma_8,cb is the growth rate f of the ShapeFit compression (DESI)
+        double get_sigma8_theta(double x = 0.0) const;
         // Angular power spectrum of the projected matter/galaxy density for the given ells (C_ell, dimensionless)
         // Auto: exact for ell < ell_limber, Limber above (Limber error ~0.4% at ell = 100, ~0.1-0.2% at 200, for
         // sigma_z = 0.1)
@@ -269,9 +322,16 @@ namespace FML::COSMOLOGY {
         // per component: Theta, ThetaE, ThetaPhi
         std::vector<std::vector<std::vector<double>>> Theta_c, ThetaE_c, ThetaPhi_c;
         std::unique_ptr<Halofit> halofit; // built by solve_matter() for either Halofit version
-        std::unique_ptr<HMcode> hmcode;
-        std::unique_ptr<ReACT> react;
+        std::unique_ptr<HALOMODEL::HMcode2020> hmcode;
+        std::unique_ptr<HALOMODEL::HMcode2016> hmcode2016;
+        std::unique_ptr<HALOMODEL::ReactionTable> react;
+        std::unique_ptr<struct NonlinearRatioTable> axionhm, ee2;
+        std::unique_ptr<struct JBDBoostState> jbd;
         void solve_react();
+        void solve_axionhmcode();
+        void solve_ee2();
+        void solve_jbd_boost();
+        std::string jbd_name;
         double nonlinear_ratio(double x, double k) const;
         const char * nonlinear_name() const;
         // tensor D_ell [muK^2] at (non-integer) ell: 0 = TT, 1 = EE, 2 = BB, 3 = TE; linear between integers

@@ -11,24 +11,33 @@
 //   dgp                                    BackgroundModel_DGP.h                   make_dgp
 //   quintessence(_inverse_power_law, ...)  BackgroundModel_Quintessence.h          make_quintessence
 //   ede, ede_zc                            BackgroundModel_EDE.h                   make_ede
+//   axion                                  BackgroundModel_Axion.h                 make_axion
 //   jbd                                    BackgroundModel_BransDicke.h            make_jbd
 //   coupled_quintessence                   BackgroundModel_CoupledQuintessence.h   make_coupled_quintessence
+//   fading_dark_sector                     BackgroundModel_CoupledQuintessence.h   make_coupled_quintessence
+//                                          (lambda = fds_c, beta = fds_cprime)
 //   cubic_galileon                         BackgroundModel_CubicGalileon.h         make_cubic_galileon
 //   dark_scattering                        BackgroundModel_DarkScattering.h        make_dark_scattering
+//   covariant_dark_scattering              BackgroundModel_DarkScattering.h        make_dark_scattering (wCDM)
 //   ide                                    BackgroundModel_IDE.h                   make_ide
-//   musigma, fr, horndeski                 the LCDM / w0wa background of the models that modify the perturbations
+//   musigma, fr, symmetron, dilaton,       the LCDM / w0wa background of the models that modify the perturbations
+//   mbeta, horndeski
+//   horndeski_table                        BackgroundModel_HorndeskiTable.h (the table of BackgroundParameters::
+//                                          model_file, from SimulationCode/scripts/horndeski_frontend.py)
 //   (not in the registry: BackgroundModel_Tabulated.h, make_tabulated_E / make_tabulated_w, from a table)
 //
 // Every entry lists the parameters of the background only, with their defaults and descriptions (ModelParameter). A
 // full model (background + perturbations) is an entry of the same name in the perturbation registry
 // (Cosmology/Perturbations/Presets.h), which adds the parameters that only concern the perturbations (mu0, Sigma0,
-// fR0, fR_n, hd_*, ds_xi, ds_cs2, ide_cs2, ide_stability_check); PERTURBATIONS::model_parameters(name) lists all of
+// fR0, fR_n, hd_*, ds_xi, cds_alpha, ds_cs2, ide_cs2, ide_stability_check); PERTURBATIONS::model_parameters(name) lists all of
 // them and PERTURBATIONS::make_model_background(name, params, all model params) builds the background from them.
 //
 // Adding a model: write its Species and/or FieldEquation_<name>.h, a BackgroundModel_<name>.h with its make_ function
 // and an entry in registry() (and its perturbations in Cosmology/Perturbations).
 // =====================================================================================================================
 
+#include <FML/Cosmology/Background/BackgroundModel_Axion.h>
+#include <FML/Cosmology/Background/BackgroundModel_HorndeskiTable.h>
 #include <FML/Cosmology/Background/BackgroundModel_BransDicke.h>
 #include <FML/Cosmology/Background/BackgroundModel_CoupledQuintessence.h>
 #include <FML/Cosmology/Background/BackgroundModel_CubicGalileon.h>
@@ -199,6 +208,19 @@ namespace FML::COSMOLOGY::BACKGROUND {
                                  m.at("ede_n"),
                                  r);
              }},
+            {"axion",
+             "Mixed dark matter: an ultralight axion (V = m^2 phi^2 / 2) with the share ax_fraction of the dark matter "
+             "Omega_cdm (the rest CDM), from rest, as axionCAMB; + Lambda from E(0) = 1; GR",
+             {{"ax_log10_m", -25.0, "log10 of the axion mass in eV (-33 to -15; light axions are dark-energy like)"},
+              {"ax_fraction", 0.1, "axion share of the dark matter: Omega_ax = ax_fraction Omega_cdm (0 < f <= 1)"},
+              {"ax_switch_mH",
+               0.0,
+               "the switch to the oscillation-averaged fluid: 0 = once the field oscillates fast (m/H ~ 125); <= 4: at "
+               "m/H = ax_switch_mH, before the first oscillation (axionCAMB: 3); > 4: at the first crossing after m/H "
+               "= ax_switch_mH"}},
+             [](const BackgroundParameters & p, const ModelParameters & m, BackgroundRange r) {
+                 return make_axion(p, m.at("ax_log10_m"), m.at("ax_fraction"), m.at("ax_switch_mH"), r);
+             }},
             {"jbd",
              "Jordan-Brans-Dicke with Lambda; phi today from bd_GeffG_today, Omega_Lambda from E(0) = 1",
              {{"bd_omega", 1000.0, "Brans-Dicke parameter omega (GR as omega -> infinity; Cassini: omega > 40000)"},
@@ -221,6 +243,16 @@ namespace FML::COSMOLOGY::BACKGROUND {
              [](const BackgroundParameters & p, const ModelParameters & m, BackgroundRange r) {
                  return make_coupled_quintessence(p, m.at("cq_lambda"), m.at("cq_beta"), r);
              }},
+            {"fading_dark_sector",
+             "Fading Dark Sector (Obied, Vafa & Wu, arXiv:2611.17422): V = V0 exp(-c phi), m_DM ~ exp(-c' phi), i.e. "
+             "coupled_quintessence with lambda = c, beta = c'; V0 from closure, GR",
+             {{"fds_c", -0.85, "c of V_DE = V0 exp(-c phi) (phi in reduced Planck masses; the paper's best fit -0.85)"},
+              {"fds_cprime",
+               0.05,
+               "c' of m_DM = m0 exp(-c' phi); the CDM feels G (1 + 2 c'^2) (the paper's best fit 0.05)"}},
+             [](const BackgroundParameters & p, const ModelParameters & m, BackgroundRange r) {
+                 return make_coupled_quintessence(p, m.at("fds_c"), m.at("fds_cprime"), r, "fading_dark_sector");
+             }},
             {"cubic_galileon",
              "Cubic Galileon on its tracker (flat, no Lambda): Omega_phi from closure, no free parameter",
              {},
@@ -230,6 +262,13 @@ namespace FML::COSMOLOGY::BACKGROUND {
             {"dark_scattering",
              "Dark matter - dark energy scattering: the background is wCDM with w = ds_w (the scattering only affects "
              "the perturbations)",
+             {{"ds_w", -0.9, "equation of state w of the dark energy (constant, != -1)"}},
+             [](const BackgroundParameters & p, const ModelParameters & m, BackgroundRange r) {
+                 return make_dark_scattering(p, m.at("ds_w"), r);
+             }},
+            {"covariant_dark_scattering",
+             "Covariantised dark Thomson-like scattering: the background is wCDM with w = ds_w (the interaction only "
+             "affects the perturbations)",
              {{"ds_w", -0.9, "equation of state w of the dark energy (constant, != -1)"}},
              [](const BackgroundParameters & p, const ModelParameters & m, BackgroundRange r) {
                  return make_dark_scattering(p, m.at("ds_w"), r);
@@ -252,6 +291,32 @@ namespace FML::COSMOLOGY::BACKGROUND {
              {},
              [](const BackgroundParameters & p, const ModelParameters &, BackgroundRange r) {
                  return make_lcdm(p, r);
+             }},
+            {"symmetron",
+             "symmetron: the LCDM background (the scalar's energy density is negligible; sym_* only modify the "
+             "perturbations)",
+             {},
+             [](const BackgroundParameters & p, const ModelParameters &, BackgroundRange r) {
+                 return make_lcdm(p, r);
+             }},
+            {"dilaton",
+             "dilaton: the LCDM background (dil_* only modify the perturbations)",
+             {},
+             [](const BackgroundParameters & p, const ModelParameters &, BackgroundRange r) {
+                 return make_lcdm(p, r);
+             }},
+            {"mbeta",
+             "(m(a), beta(a)): the LCDM background (mb_* only modify the perturbations)",
+             {},
+             [](const BackgroundParameters & p, const ModelParameters &, BackgroundRange r) {
+                 return make_lcdm(p, r);
+             }},
+            {"horndeski_table",
+             "reduced Horndeski (K, G3, G4) from the table of SimulationCode/scripts/horndeski_frontend.py "
+             "(model_file): its H(a) as a tabulated dark energy (GR sum)",
+             {},
+             [](const BackgroundParameters & p, const ModelParameters &, BackgroundRange r) {
+                 return make_horndeski_table(p, r);
              }},
             {"horndeski",
              "Horndeski (alpha parameterization): the LCDM or w0wa background from hd_w0, hd_wa (the alphas only "

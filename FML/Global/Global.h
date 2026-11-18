@@ -47,6 +47,12 @@ namespace FML {
 
 #include <FML/Timing/Timings.h>
 
+namespace FML {
+    // The decomposition of the box over the tasks (Domain.h, included at the end of this file: it uses the
+    // declarations below)
+    class Domain;
+} // namespace FML
+
 // The FFTW C API must be declared in the global namespace (FFTWGlobal.h is included
 // inside namespace FML::GRID below and would otherwise put it there)
 #ifdef USE_FFTW
@@ -77,6 +83,21 @@ namespace FML {
     extern double xmin_domain;
     /// The local extent of the domain (global domain goes from 0 to 1)
     extern double xmax_domain;
+
+    /// The decomposition of particles over the tasks (Domain.h): a Slab by default, whose ranges are
+    /// xmin_domain, xmax_domain of each task. Pencil and PeanoHilbert are not yet supported by the rest of FML (a
+    /// warning when chosen). Change it with set_domain
+    extern Domain domain;
+    /// Set the global particle domain (on all tasks, made for NTasks). A Slab also sets xmin_domain, xmax_domain to
+    /// the local range; Pencil and PeanoHilbert give a warning (most of FML assumes slabs)
+    void set_domain(const Domain & new_domain);
+    /// The global particle domain with its current ranges: for a Slab those of xmin_domain, xmax_domain gathered
+    /// from the tasks (collective: all tasks must call it), else domain
+    Domain get_domain();
+    /// A Slab domain from the local range [xmin, xmax) of each task (collective)
+    Domain slab_domain_from_local_range(double xmin, double xmax);
+    /// Equal pencils on a px x py process grid (px = py = 0: chosen by MPI_Dims_create; px * py = NTasks)
+    Domain pencil_domain(int px = 0, int py = 0);
 
     // Global timer
     extern FML::UTILS::Timings global_timer;
@@ -317,14 +338,22 @@ namespace FML {
 #define assert_mpi(Expr, Msg) assert_mpi_impl(#Expr, Expr, __FILE__, __LINE__, Msg)
 
     //============================================
-    /// Simple integer a^b power-function by squaring (b >= 0; returns 0 for b < 0 instead of recursing forever)
+    /// Simple integer a^b power-function by squaring (b >= 0; returns 0 for b < 0 instead of recursing forever).
+    /// The result must fit in a long long int (it is meant for sizes like Nmesh^N)
     //============================================
     constexpr long long int power(int base, int exponent) {
-        return exponent < 0  ? 0 :
-               exponent == 0 ? 1 :
-                               (exponent % 2 == 0 ? power(base, exponent / 2) * power(base, exponent / 2) :
-                                                    (long long int)(base)*power(base, (exponent - 1) / 2) *
-                                                        power(base, (exponent - 1) / 2));
+        if (exponent < 0)
+            return 0;
+        long long int result = 1;
+        long long int b = base;
+        while (exponent > 0) {
+            if (exponent & 1)
+                result *= b;
+            exponent >>= 1;
+            if (exponent > 0)
+                b *= b;
+        }
+        return result;
     }
 
     //============================================
@@ -546,5 +575,8 @@ namespace FML {
         ~FMLSetup() = default;
     };
 } // namespace FML
+
+// The domains (they need the declarations above)
+#include <FML/Global/Domain.h>
 
 #endif

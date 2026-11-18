@@ -5,7 +5,7 @@
 
 #include "TransferInput.h"
 #include <FML/ComputePowerSpectra/ComputePowerSpectrum.h>
-#include <FML/FFTWGrid/FFTWGrid.h>
+#include "SimulationGrid.h"
 #include <FML/Global/Global.h>
 #include <FML/Interpolation/ParticleGridInterpolation.h>
 #include <FML/Interpolation/SheetInterpolation.h>
@@ -35,6 +35,7 @@
 #include "SimulationParameters.h"
 #include "ShortRangeForce.h"
 #include "Species.h"
+#include "SpeciesTimeStepping.h"
 #include "TimeStepping.h"
 
 #include <algorithm>
@@ -78,7 +79,7 @@ template <int NDIM, class T>
 class NBodySimulation {
   public:
     template <int N>
-    using FFTWGrid = FML::GRID::FFTWGrid<N>;
+    using FFTWGrid = SimulationGrid<N>;
     using MPIParticles = FML::PARTICLE::MPIParticles<T>;
     using ParameterMap = FML::UTILS::ParameterMap;
     using Spline = FML::INTERPOLATION::SPLINE::Spline;
@@ -95,6 +96,8 @@ class NBodySimulation {
     std::shared_ptr<GravityModel<NDIM>> grav;
     /// The gravity model used to make the IC (GR if ic_use_gravity_model_GR, otherwise grav)
     std::shared_ptr<GravityModel<NDIM>> grav_ic;
+    /// GR, for the nonlinear predictions of a gravity model with a fitted nonlinear boost over GR (else empty)
+    std::shared_ptr<GravityModel<NDIM>> grav_gr;
 
     /// The transfer functions (ic_type_of_input = camb, class, internal or tables; see TransferInput.h).
     /// The same object as in the gravity model (grav)
@@ -196,7 +199,7 @@ class NBodySimulation {
     /// Do the CDM+baryon particles carry masses (the mass-encoded relative mode, particle_baryon_relative_mode = mass
     /// or mass_ini)? Otherwise their masses (if the particle type has them) are 1
     bool particles_have_masses() const {
-        return params.particle.baryons and params.particle.baryon_relative_mode != "displacement";
+        return (params.particle.baryons and params.particle.baryon_relative_mode != "displacement") or cosmo->is_ide();
     }
     /// Massive neutrinos as particles (delta-f method)?
     bool has_neutrino_particles() const { return params.particle.neutrinos; }
@@ -227,6 +230,14 @@ class NBodySimulation {
             if (info.is(SIMCODE::ParticleSpecies::MassiveNeutrino))
                 f(part_neutrinos.particles(), info);
     }
+    /// The weight of a CDM+baryon species in delta_cb at a: Omega_i / OmegaCB (info.weight_cb), or with a varying CDM
+    /// mass (coupled quintessence, interacting dark energy) rho_i(a) / rho_cb(a)
+    double cb_weight(const SIMCODE::SpeciesInfo & info, double a) const {
+        if (not cosmo->cdm_mass_varies() or info.is(SIMCODE::ParticleSpecies::CDMBaryon))
+            return info.weight_cb;
+        const double f_c = cosmo->cdm_fraction_cb(a);
+        return info.is(SIMCODE::ParticleSpecies::CDM) ? f_c : 1.0 - f_c;
+    }
     /// The shot noise of the density field of a species (in units of the box volume): 1/N (sum w^2 / N^2 for the
     /// delta-f neutrinos). Collective
     double species_shotnoise(const SIMCODE::SpeciesInfo & info) {
@@ -234,11 +245,12 @@ class NBodySimulation {
             return part_neutrinos.shotnoise();
         return 1.0 / double(cb_particles_of(info).get_npart_total());
     }
-    /// The shot noise of delta_cb = sum_i w_i delta_i: sum_i w_i^2 / N_i
-    double cb_shotnoise() {
+    /// The shot noise of delta_cb = sum_i w_i delta_i: sum_i w_i^2 / N_i (the weights at a, cb_weight; a <= 0: today's)
+    double cb_shotnoise(double a = -1.0) {
         double shotnoise = 0.0;
         for_each_cb_species([&](MPIParticles & particles, const SIMCODE::SpeciesInfo & info) {
-            shotnoise += info.weight_cb * info.weight_cb / double(particles.get_npart_total());
+            const double w = a > 0.0 ? cb_weight(info, a) : info.weight_cb;
+            shotnoise += w * w / double(particles.get_npart_total());
         });
         return shotnoise;
     }
@@ -278,6 +290,26 @@ class NBodySimulation {
         if (transfers)
             return transfers->power(SIMCODE::TransferSpecies::CDMBaryon, k, a);
         return 0.0;
+    }
+    /// P_NL(k) / P_linear(k) of the nonlinear predictions in the P(k) outputs at a redshift (k in h/Mpc): the
+    /// EuclidEmulator2 boost of the cosmology (LCDM, w0waCDM) and, for a gravity model with a fitted nonlinear boost
+    /// over GR (f(R) with n = 1), also that boost times the ratio of the linear P(k) of GR and of the model
+    /// ((D_GR(k, a) / D_GR(k, aini))^2 / (D(k, a) / D(k, aini))^2), i.e. P_NL = P_lin,GR B_EE2 B_model. Empty (no
+    /// prediction: the outputs repeat linear theory) without the EuclidEmulator2 boost
+    std::function<double(double)> nonlinear_over_linear_prediction(double redshift) const {
+        auto ee2 = std::make_shared<Spline>(cosmo->get_nonlinear_matter_power_spectrum_boost(redshift));
+        if (not *ee2)
+            return {};
+        auto boost = grav->nonlinear_boost_over_GR(redshift);
+        if (not boost or not grav_gr)
+            return [ee2](double k) { return (*ee2)(k); };
+        const double a = 1.0 / (1.0 + redshift), aini = 1.0 / (1.0 + params.ic.initial_redshift);
+        return [ee2, boost, a, aini, model = grav, gr = grav_gr](double k) {
+            const double q = k / model->H0_hmpc;
+            const double ratio = (gr->get_D_1LPT(a, q) / gr->get_D_1LPT(aini, q)) /
+                                 (model->get_D_1LPT(a, q) / model->get_D_1LPT(aini, q));
+            return (*ee2)(k) * boost(k) * ratio * ratio;
+        };
     }
     /// (T_species(k, a) / T_cb(k, a))^2 from the transfer functions (1 without them): P_species = P_cb times this
     double species_linear_ratio(SIMCODE::TransferSpecies species, double k, double a) const {
@@ -335,8 +367,23 @@ class NBodySimulation {
 
     // The parts of run() (a step: where the positions and velocities are, and the kick/drift sizes)
     using Step = FML::NBODY::TimeStepping::Step;
+    /// The steps of the CDM and baryon particles when they have their own friction (species_have_own_time_stepping):
+    /// the same scale factors as the step of the CDM+baryon fluid, their own drift, kick and velocity_scale. Set for
+    /// every step by run(); empty otherwise
+    std::map<SIMCODE::ParticleSpecies, Step> species_steps;
+    /// The step of a species: its own (species_steps) or the step s of all the particles
+    const Step & step_of(const Step & s, const SIMCODE::SpeciesInfo & info) const {
+        const auto it = species_steps.find(info.species);
+        return it == species_steps.end() ? s : it->second;
+    }
     void kick_short_range_force(const Step & s);
+    /// Coupled quintessence with CDM and baryon particles: the fifth force of the CDM on the CDM
+    bool cdm_fifth_force_separate() const { return grav->has_cdm_fifth_force() and has_baryons(); }
+    void kick_cdm_fifth_force(const Step & s, FFTWGrid<NDIM> & density, std::array<FFTWGrid<NDIM>, NDIM> & force);
     void step(const Step & s);
+    /// Interacting dark energy: the masses of the CDM (or CDM+baryon) particles at a (SimulationIDE.h)
+    void update_ide_masses(double a);
+    double ide_masses_a{-1.0}; // the scale factor of the last update
     void drift_and_lightcone(const Step & s);
     void kick_with_interlaced_force(const Step & s);
     // The density field (SimulationDensity.h)
@@ -366,5 +413,6 @@ class NBodySimulation {
 #include "SimulationInit.h"
 #include "SimulationStep.h"
 #include "SimulationDensity.h"
+#include "SimulationIDE.h"
 
 #endif

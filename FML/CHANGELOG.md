@@ -5,6 +5,716 @@ The entries below are relative to upstream commit `f9f666a` (April 2026).
 
 ## [Unreleased]
 
+### AMRCode: N-GenIC random generator
+- `random_generator = GSL` (new default: gsl_rng_ranlxd1, as N-GenIC/2LPTic/L-PICOLA and SimulationCode's
+  `ic_random_generator = GSL`) or `MT19937` (std::mt19937, the previous behaviour). The same seed now gives different
+  initial conditions than before unless `random_generator = MT19937`.
+
+### CosmologyFitting: Brans-Dicke fits
+- `Theory::lensing_Sigma(z)`: Sigma = G_light/G_* of the Weyl potential (quasi-static; Brans-Dicke g/phi, mu-Sigma, cubic
+  Galileon, f(R)), used by `kids1000_cosebis` for the lensing kernel; equal to the full perturbations to 2e-7.
+- Sampling aliases `log10_bd_omega`, `inv_bd_omega` (= 1/omega, 0 = GR) with bd_omega derived;
+  `params/mcmc_jbd_planck_boss_pantheonplus.ini` (Joudaki et al. 2022: Planck + Pantheon+ + BOSS DR12, omega, G_eff/G
+  today and m_nu free).
+
+### CosmologyFitting: KiDS-1000 cosmic shear (COSEBIs)
+- Likelihood `kids1000_cosebis` (Asgari et al. 2021): E_n, n = 1..5, of the 15 bin pairs with the release's covariance and
+  SOM n(z) (`external/kids1000/`, from the KiDS data release with `python/convert_kids1000.py`; the delta_z covariance
+  recovered from the release's chain), the CosmoSIS treatment of the photo-z shifts, NLA intrinsic alignments
+  (`kids_A_IA`) and the shifts `kids_dz1..5` with their correlated Gaussian prior; theory from
+  `WeakLensing/CosmicShear.h`. Against the KiDS chain: chi^2 = 82.19 vs 82.25 at the maximum posterior, |Delta chi^2|
+  <= 0.14 at posterior draws. `params/mcmc_kids1000_lcdm.ini`.
+- `Theory::pk_nl(z)`, `growth_D(z)`, `chi_mpch(z)` (`TheoryOptions::pk_nl_z`; `Likelihood::pk_nl_redshifts`).
+- HMcode-2016 baryonic feedback: `hmcode2016_A`, `hmcode2016_eta0` (CAMB HMCode_A_baryon, HMCode_eta_baryon; 0.06%
+  from CAMB at A = 2.6) and `hmcode2016_eta0_from_A` (KiDS' eta0 = 0.98 - 0.12 A); `HaloModelOptions::hmcode2016_A`,
+  `hmcode2016_eta0`.
+- `WeakLensing::NLA`: C1 rho_crit = 5e-14 rho_crit = 0.013877 (CosmoSIS and CCL; was 0.0134).
+
+### WeakLensing: tomographic cosmic shear (`CosmicShear.h`)
+- `shear_spectra`: Limber C_ell of shear and NLA intrinsic alignments (GG, GI, II) for tomographic n(z), with
+  photo-z shifts n(z - delta_z), multiplicative bias (1 + m_i)(1 + m_j), an optional Sigma(z) on the lensing kernel
+  (modified gravity) and the optional spin factor (ell+2)!/(ell-2)!/(ell+1/2)^4. Against QUADPACK 1e-5, CCL 3e-4.
+- `shear_correlation`, `shear_correlation_binned`, `hankel`: flat-sky xi_+-(theta) (6e-8 against QUADPACK).
+- `LogCOSEBIs`: logarithmic COSEBIs of Schneider, Eifler & Krause (2010) as KiDS-1000: T_+-n (in an orthonormal
+  polynomial basis instead of SEK10's 40-digit monomials; = SEK10 in 60 digits to 1e-14), N_n and roots, W_n(ell)
+  tabulated once (asymptotic J_0 + Filon), E_n from C_ell, E_n and B_n from xi_+-. Test `tests/test_cosmic_shear`.
+
+### CosmologyFitting: BOSS DR12 and eBOSS DR16 BAO + RSD, f sigma_8
+- Likelihoods `boss_dr12` (BOSS DR12 consensus BAO + full shape: D_M, H, f sigma_8 at z = 0.38, 0.51, 0.61),
+  `boss_dr12_bao`, `eboss_dr16_lrg` and `eboss_dr16_qso` (data from Cobaya's bao_data in `external/bao/`).
+  `BAOLikelihood` reads `bao_Hz_rs` and `f_sigma8` and scales by `rs_fid`.
+- `PowerSpectrum::get_fsigma8(x)`, `get_sigma8_cb(x)`: CAMB's f sigma_8 = sigma_8,vd^2/sigma_8 of the CDM + baryons
+  with f(k) = dln Delta_cb/dln a (scale-dependent growth included). `Theory::fsigma8(z)`, `sigma8_cb(z)` at the
+  redshifts the likelihoods ask for (`TheoryOptions::growth_z`); without CMB likelihoods only P(k) is computed
+  (`TheoryOptions::cmb = false`). Against CAMB 4e-5 (3e-4 with precision = fast); Brans-Dicke omega = 1e7 = LCDM.
+- `desi_dr1_shapefit`: DESI DR1 full shape in the ShapeFit compression + BAO (DESI 2024 V; q_iso, q_ap, df, dm of six
+  samples, q_par, q_per of Lyman-alpha), as DESI's Cobaya likelihood desi_shapefit_bao_all, with cosmoprimo's
+  peakaverage BAO filter ported and the DESI fiducial computed in FML. `Theory::sigma8_theta(z)`, `pk_cb(z)` (linear
+  P_cb on cosmoprimo's grid; `TheoryOptions::pk_z`). Against DESI's likelihood (cosmoprimo 1.0.0, CAMB 2.0.5): q to
+  1e-6, df to 3e-4, dm to 7e-4, chi^2 to 0.04.
+
+### SimulationCode: halos on the lightcone
+- `plc_halos` (and `plc_halos_nmin_per_halo`, `plc_halos_linking_length`, `plc_halos_buffer_mpch`,
+  `plc_halos_shell_only`): friends-of-friends at every lightcone step on the particles near the shell of the step;
+  each halo is recorded once where its center of mass crosses the lightcone (moving with the mean velocity of its
+  particles, in every replica), in `lightcone_<name>/halos_lightcone.txt`. The same catalogue as FoF on all the
+  particles (also on 1 and 2 tasks); against FoF on the particle lightcone the halo counts per shell agree to 2% and
+  the masses are 1% lower (median). Test `tests/check_lightcone.py halos`. Cost in a 192^3, 1 Gpc/h, z < 1 octant run:
+  16 s of 132 s.
+
+### Fading Dark Sector (Obied, Vafa & Wu, arXiv:2611.17422)
+- V_DE = V0 exp(-c phi), m_DM = m0 exp(-c' phi): FML's coupled quintessence with lambda = c, beta = c' (same
+  equations and conventions, phi in reduced Planck masses). Added as a named model on top of that code:
+  - EBS: registry entry `fading_dark_sector` (`fds_c`, default -0.85; `fds_cprime`, default 0.05, the paper's best
+    fit) in the background and perturbation presets; `params/fading_dark_sector.ini`.
+  - SimulationCode: `cosmology_model = FadingDarkSector` (`cosmology_fds_c`, `cosmology_fds_cprime`) and
+    `gravity_model = FadingDarkSector` (GravityModel_CoupledQuintessence under that name; CoupledQuintessence also
+    accepts the FDS cosmology).
+- Tests: `fading_dark_sector` = `coupled_quintessence` with lambda = c, beta = c' (Background/tests/test_models: max
+  difference 0; EBS outputs byte-identical; SimulationCode outputs bit-identical, COLA + Quinn and FastPM). New regression
+  cases `fading_dark_sector_cola`, `fading_dark_sector_fastpm` (need references). The EBS CDM growth z = 54 -> 0 at k
+  = 0.1/Mpc, FDS/LCDM, agrees with an independent sub-horizon two-fluid integration of the paper's equations (A24-A25)
+  to 1e-6.
+
+### Dilaton cell solve: safeguarded Newton
+- `DilatonSolverCosmology::solve_cell_affine` (uniform and AMR solvers) bisects when a Newton step does not halve the
+  previous one. A far bisection followed by Newton steps of ~+1 used to exhaust the iterations ~150 e-folds from the
+  root, so the AMR multigrid stopped converging in later steps of the C4 run (and depended on the number of tasks).
+  `AMRDilatonSolver.h`: a cell without a root in the bracket keeps its value. Test in `AMRDilatonExample.cpp`; the
+  checksums and test_multigrid are unchanged; a 64^3 C4 run converges in every solve to z = 1.
+
+### AMR multigrid: exact injection of the coarse-grid correction
+- `AMRMultiGridSolver::prolong_correction`: the cells that exist on both levels get the coarse value instead of
+  f + (f_c - Rf), which is the same in exact arithmetic but gives exactly 0 when a cell changes by more than 16 orders of
+  magnitude on the coarse level. This made the first dilaton solve in AMRCode fail with NaN in dense haloes resolved
+  below the finest level (models C4 and D4). Other solves are unchanged (identical outputs of the AMR examples and of a
+  dilaton N-body run). `AMRDilatonSolver.h`: no NaN in the equation for w <= 0. Test in `AMRDilatonExample.cpp`.
+
+### Hybrid bias spectra in redshift space
+- `compute_cross_power_spectrum_multipoles_fourier` (ComputePowerSpectrum.h): cross multipoles of two grids; the auto
+  multipoles use the same code (identical results).
+- `ComputePowerSpectra/HybridBiasRedshiftSpace.h`: the redshift-space multipoles of the 15 hybrid bias spectra from
+  particles with velocities (`compute_hybrid_bias_multipoles`) and of the Zel'dovich field (control variate).
+- Predictions: the exact Zel'dovich P_ab(k, nu) and multipoles in redshift space (`zeldovich_hybrid_bias_pkmu`,
+  `zeldovich_hybrid_bias_multipoles`; the real-space function shares the code, identical output) and the one-loop
+  LPT prediction (`HybridBiasOneLoopRSD.h`) including the nabla^2 delta spectra (`LPTRedshiftSpace::operator_components`;
+  `LPTRedshiftSpace` itself gives identical output). Docs in `ComputePowerSpectra/HYBRID_BIAS_RSD.md`, tests in
+  `tests/test_hybridbias_rsd.cpp`.
+- SimulationCode: `hybridbias_rsd` (and `hybridbias_rsd_ellmax`) writes `hybridbias_rsd_z<z>.txt` and, with the
+  Zel'dovich field / Zel'dovich / one-loop switches, the redshift-space Zel'dovich field, prediction, control variate
+  and one-loop prediction (also in `hybridbias_zeldovich_field_only` mode). SnapshotAnalyzer (`FML::ANALYSIS`
+  `HybridBias.h`): the same `hybridbias_rsd` options; it reproduces the in-run multipoles to 1e-5 - 4e-4.
+- Documentation: the book (sections on the redshift-space hybrid bias and on the AMR dilaton solver and AMRCode's
+  dilaton), the website (AMR, SimulationCode, SnapshotAnalyzer, correlation-function pages), PARAMETERS.md,
+  ANALYSIS.md and the READMEs.
+
+### AMRCode: dilaton gravity
+- `gravity_model = Dilaton` (`dilaton_A2`, `dilaton_beta0`, `dilaton_r`, `dilaton_xi`, `dilaton_start_redshift`,
+  `dilaton_epsilon`): the field `w = phi / phi_bar` is solved on the AMR leaves like the symmetron (full and partial
+  solves) from `dilaton_start_redshift` (default 4) on. P_Dilaton / P_LCDM agrees with SimulationCode's exact solver to
+  0.5% up to k = 1 h/Mpc (64^3 in 128 Mpc/h, A2 = 1e5 and 5e5) and is lower where AMR resolves screened halos.
+- `MultigridSolver/AMRDilatonSolver.h`: `AMRDilatonSolverCosmology<NDIM>`, the AMR version of `DilatonSolverCosmology`
+  (the cell solve in ln w); example and tests `examples/AMRDilatonExample.cpp` (`make amrdilaton`): second order
+  against a radial reference, equal to the uniform solver to 5e-14 on a uniform grid, the same on 1-4 tasks.
+- `AMRMultiGridSolver`: `set_custom_update` (a custom Gauss-Seidel update, as `MultiGridSolver`) and
+  `set_coarse_fine_limiter` (minmod-limited coarse gradient in the coarse/fine ghosts: non-negative neighbour weights).
+  Off by default; the other AMR examples give identical output.
+- `DilatonSolverCosmology::solve_cell_affine`: the cell solve for any Laplacian affine in the cell value (`solve_cell`
+  calls it; test_multigrid output unchanged).
+- AMRCode: the scalar field (symmetron or dilaton) is first solved at a full solve (starting on a partial sub-step
+  could add its force to stale forces of the coarser leaves); the symmetron runs are unchanged.
+
+### AMRCode: symmetron gravity and less memory
+- `gravity_model = Symmetron`: the symmetron field is solved on the AMR leaves with the same multigrid as the
+  potential (full and partial solves, so at every sub-step) and its fifth force added. P_Symmetron / P_LCDM agrees
+  with SimulationCode's exact solver on large scales (1.023 against 1.019 at k = 0.3 h/Mpc, 64^3 in 128 Mpc/h) and is
+  lower where AMR resolves screened halos.
+- Memory: the old multigrid solver is freed before the new one is built at a regrid, and the solver's face table
+  uses 32 bit indices (`AMRMultiGridSolver`): 2.7 instead of 5.8 kB per particle (LCDM).
+- Parameter files can `include =` another, unknown keys give a warning; `output_images` writes a PNG of the particles.
+
+### Images of fields at the outputs (SimulationCode and SnapshotAnalyzer)
+- `images = true` writes PNG pictures (and with `images_npy` the values as .npy) of a slab of fields projected along an
+  axis, `image_<field>_z<z>.png` in the snapshot folder, with FML/Visualization (no dependencies). Fields: `density`,
+  `velocity_divergence` (-div v / (a H) = f delta in linear theory), `baryons_minus_cdm`, `neutrinos` (particles, or
+  linear on top of delta_cb) and `fifth_force` (|F_5th| / |F_Newton| with the model's own screening method or exact
+  solver, whose state for the next step is kept). Settings `images_*` (grid, pixels, axis, slab, assignment, colour
+  map) in `FML/Analysis/Images.h`, shared with the SnapshotAnalyzer (density and velocity divergence of snapshots).
+  New `GravityModel::fifth_force_density_for_output`. Tests: `SimulationCode/tests/check_images.py` (nightly; theta =
+  f delta on large scales to 2-4%, neutrinos, f(R) screening in dense regions, unchanged P(k), errors, slabs and
+  pencils), the velocity divergence of a known field (`Analysis/tests`), the SnapshotAnalyzer images.
+- `FML/Visualization`: the projection of a grid uses FML's cell positions i / Nmesh (it took (i + 1/2) / Nmesh, half a
+  cell off the assignment); pixel (ix, iy) is the cell at (ix, iy) / Nmesh.
+- `bispectrum_shell_overlap_weights` is `always_optional` (runs with `all_parameters_must_be_in_file = true` and
+  `bispectrum = true` needed it in the parameter file).
+
+### Polyspectra: optional shell overlap weights
+- `PolyspectrumBinning::shell_overlap_weights` (off by default; `polyspectrum_shell_overlap_weights_default` sets it
+  for new binnings): each Fourier cell is weighted by the exact fraction of its volume inside the shell instead of 0/1
+  from its centre ("shell anti-aliasing" as in CONCEPT, whose closed-form cell/ball overlap is ported in
+  `ComputePowerSpectra/ShellOverlap.h`). The bin-count N123 then follows the continuum triangle count (equilateral
+  bins one cell wide: within 1% from k = 3 k_f instead of 10-30% scatter) and a measurement belongs to its nominal k.
+  The triangle-closure check and the bin-count round-off cut allow for the cells that stick out of a shell. Exposed as
+  `bispectrum_shell_overlap_weights` in SimulationCode and SnapshotAnalyzer. Tests: exact overlaps, weights summing
+  to 1 over the bins, N123 and B of a random field against brute-force weighted sums, slabs vs pencils.
+
+### New module: Visualization
+- `Visualization/`: pictures of grids and particles from C++ with no dependencies. `project_grid` projects a slab of
+  an FFTWGrid or PencilGrid (any axis, periodic slab, sum or mean), `project_particles` the particles (NGP or CIC,
+  mass weighted), the same image on every task. Colour maps (magma, inferno, viridis, plasma, cividis, coolwarm,
+  grey, cubehelix, reversed with `_r`), linear, log and symmetric colour scales (fixed limits or percentiles), a PNG
+  writer with its own deflate, and .npy output. Example and tests (the PNGs are read back with Python's zlib).
+
+### The examples run without the TestData submodule
+- `ExampleData/ExampleData.h`: synthetic input for the examples (a toy clustered box with halos, voids and
+  velocities; galaxies in redshift space; a survey patch with randoms; a RAMSES snapshot writer). The examples of
+  ComputePowerSpectra, FriendsOfFriends, TidalTensor, Triangulation, GadgetUtils, KDTree, PairCounting, RamsesUtils,
+  Survey and the reconstruction example use it instead of files from `TestData`, which is removed (it was a git
+  submodule; the GadgetUtils and RamsesUtils examples write a snapshot and read it back). The power spectrum example
+  had no velocities before (uninitialized for the multipoles).
+
+### Interpolation review (part 3a): fixes and speedups
+- A particle more than round-off (1e-3 cells) outside the local domain of the grid (e.g. no `communicate_particles`
+  after moving the particles) now stops `particles_to_grid` and the interpolation with a clear message, on slabs and
+  pencils and in all builds. Before, it was moved to the edge of the domain and its kernel cut off: lost mass or force
+  without notice. The check costs nothing for the particles inside.
+- `particles_to_grid` with no particles (`NumPartTot = 0`) stops with a message (filled the grid with inf).
+- The exchange of the extra slices after the assignment (and in the NUFFT spreading) is sent in chunks: it failed for
+  slices of more than 2 GB (Nmesh >= 16384 in double). Shared helper `FML::COMMUNICATION::sendrecv_bytes_chunked`.
+- `convolve_grid_with_kernel` did not compile (`coord_from_index`), and ORDER 1 ignored the kernel; fixed and tested
+  (`tests/test_interpolation`).
+- Threaded assignment without atomics in more cases: on thin slabs (fewer than 4 (2 ORDER + 2) slices per task, e.g.
+  Nmesh 512 on 32 tasks) the chunks are made along y instead of falling back to atomic adds (2-3 times faster for
+  TSC-PQS). On pencils (always atomic before, also with one thread) the chunks are made along an axis the task has all
+  of: one thread 2-4 times faster for CIC-PQS, deterministic with threads. Unchanged where the chunks along x worked.
+- The scalar interpolation computes the kernel weights once per axis (as the vector one): faster for
+  CIC-PQS (1.6-2.5 times). Identical results (up to the compiler's fused multiply-adds).
+- `convolution_fourier_space` documents that it is not de-aliased (and how to de-alias).
+
+### Density assignment from particles on any domain (as GADGET's PM)
+- `Interpolation/DistributedDeposit.h`: `particles_to_grid_any_domain(part, NumPart, NumPartTot, grid, "CIC")` (and for
+  `MPIParticles`) gives the overdensity field of `particles_to_grid` (NGP-PQS, mass / delta-f weights, assignment
+  offsets for interlacing) on an `FFTWGrid` or `PencilGrid` for particles on any task, e.g. a `PeanoHilbertDomain`,
+  without moving them. Each task deposits into a dense patch over the periodic bounding box of its particles' cells
+  and sends the part in each task's box of the grid there (all-zero blocks skipped; Springel 2005). The patch is
+  bounded (`DepositOptions::max_patch_cells`): a larger bounding box is done in passes. Deterministic with OpenMP.
+  `deposit_to_partitioned_mesh` does the same for any box partition (`MeshPartition`) with a callback per cell.
+  Test: `tests/test_distributed_deposit` (equal to the slab deposit to 1e-15 relative, on slabs and every pencil
+  process grid, 1-4 tasks).
+
+### Multigrid on adaptively refined grids
+- `MultigridSolver/AMRMultiGridSolver.h`: FAS multigrid for (non-linear) PDEs `L(f) = 0` on an `AdaptiveMPIGrid`
+  (any dimension, MPI, periodic or Dirichlet). The levels are the grid truncated at every refinement level and
+  uniform grids below the base grid; only the finest cells of each level are relaxed (multi-level adaptive
+  technique). Flux-conservative Laplacian with gradient-corrected coarse/fine ghosts (second order). Example and
+  tests: `examples/AMRPoissonExample.cpp` (`make amrpoisson`); notes in `AMRMultiGridSolver.md`.
+- `MultigridSolver/AMRDGPSolver.h`: `AMRDGPSolverCosmology<3>`, the DGP (normal branch) fifth-force equation on an
+  `AdaptiveMPIGrid` (the equation, parameters, units and returned potential of `DGPSolverCosmology`; equal to it on a
+  uniform grid). Tested against the exact solution for a spherical compensated overdensity (second order; example
+  `examples/AMRDGPExample.cpp`, `make amrdgp`). For it `AMRMultiGridSolver` got `get_hessian` (mixed derivatives from
+  the gradient field), `get_laplacian_components`, `set_gradient_field` and `set_subtract_mean_residual`.
+- `AdaptiveMPIGrid::truncated<U>(level)`: the grid with every leaf finer than `level` replaced by its ancestor (full
+  coarser grids below `levelmin`). `AdaptiveMPIGridTransfer<NDIM>`: restriction (volume average) and gather between
+  a grid and a coarsening of it. `find_leaf_by_key`; `alltoallv_sparse` is public. Tag counters are shared by all
+  grids. Tests for truncation and transfer in `example/Test.cpp`.
+- `AdaptiveMPIGrid`: the ghost-pattern build skips leaves whose neighbourhood is local (an O(1) test against an
+  aligned box inside the task's part of the curve), and `truncated` copies the pattern when nothing is truncated:
+  construction of a 2M-leaf 3D grid 10.7 s -> 0.2 s, AMR solver setup 14.9 s -> 2.9 s (one core). Same ghost sets.
+
+### Pencils throughout FML: the generic grid interface, complex grids, the codes on pencils
+- `FFTWGrid/GridInterface.h`: the interface generic grid code is written against, so it runs on `FFTWGrid` (slabs) and
+  `PencilGrid` (pencils) alike: `make_grid<Grid>(Nmesh, left, right, domain)` / `make_grid_like`, `get_local_range`,
+  `has_dc_mode`, `particle_domain_of`, `CellOwners`. Generic functions take the grid as a template argument
+  (`template <int N, template <int> class Grid = FFTWGrid>`) with an FFTWGrid fast path; existing calls are unchanged.
+  `PencilDomain/README.md` describes the pencils, how to run the codes on them and how to write code for both.
+- `GhostedCells<T, N>`: per-cell data of any type with ghost layers from the neighbouring tasks (corners included);
+  `copy_fourier_modes`: owner-routed mode copies between grids of any size, decomposition and type;
+  `PencilGrid::dump_to_file` / `load_from_file` / `storage_bytes`.
+- Complex grids: `CFFTWGrid<N>` (complex-to-complex FFTW-MPI slabs) and `CPencilGrid<N>` (complex pencils), with the
+  interface of `FFTWGrid` / `PencilGrid` (`fftw_forward` normalized by 1/Nmesh^N, `fftw_backward`).
+- On any grid / domain: particle assignment and interpolation (a separable kernel stencil), power spectra,
+  polyspectra, multipoles, hybrid bias spectra and linear-field files, connected four-point, random fields, NUFFT,
+  PGD, smoothing, Hessian, LPT and the particles from it (IDs = lattice index, independent of the decomposition),
+  multigrid solvers, short-range gravity ghosts, voxel / spherical voids, voxel morphology, SPH, DTFE and periodic
+  Delaunay (`MPIPeriodicDelaunay(domain)`, `DTFE(domain)`), cosmic web, FoF (`FoFDomain.h`), spherical overdensity,
+  the phase-space halo finder, glass ICs, sheet interpolation, the FieldLevel distributed assignment, the Survey
+  meshes (`-DFML_SURVEY_PENCIL_MESH`) and the GADGET / HDF5 / RAMSES readers.
+- The EdS arbitrary-order LPT natively on pencils (uniform pencil work grids, owner-routed embedding and cropping, the
+  Hermitian planes exchanged between the owners of mirrored modes); slabs unchanged.
+- The Fourier RSD reconstruction on any grid (`RSDReconstructionFourierMethod<N, T, PencilGrid>`); the grid always
+  has the extra cells of the CIC interpolation (also for NGP assignment). Flat-sky shear maps on any 2D grid.
+- WaveDarkMatter on the complex grids: `SolverT<Grid>` (`Solver` = slabs, `SolverT<CPencilGrid<3>>`); `ComplexGrid`
+  removed. Checkpoints version 2 (x-y box shards, independent of the decomposition; version 1 is still read).
+- `SimulationCode` and `SnapshotAnalyzer`: `make USE_PENCIL_GRID=true` (pencils from `FML_PENCILS="px py"` or as
+  square as possible); every model, output and analysis works on both. The objects rebuild when the flag changes.
+- `MPIParticles` with a PeanoHilbert domain without a warning; `create_particle_grid` throws `std::invalid_argument`
+  for domains other than Slab and Pencil.
+- Faster: the 27-cell multigrid stencil from per-axis offsets (DGP on a non-power-of-two mesh: 20% faster than
+  before), and the generic assignment / interpolation (a 96^3 COLA run on pencils from 1.8 to 1.2 times the slab time).
+- Verified: slab results bit-identical to before (N-body regression, SnapshotAnalyzer, wave solver, EdS LPT,
+  reconstruction); pencils match slabs to round-off on every process grid (`tests/test_*_pencil`, `test_*_domain`,
+  `test_complex_grids`, the wave and weak-lensing tests built for both) on 1 - 6 tasks.
+
+### PencilGrid: faster transposes, FML's planner flag, a benchmark
+- The transposes pack each task's block with cache-blocked copies and exchange contiguous buffers with
+  `MPI_Alltoallv` (with one task in the row / column the block is copied directly), instead of `MPI_Alltoallw` with
+  nested strided datatypes (copied one complex number at a time: 80% of the transform). The work array is kept
+  (shared by the grids of a layout) and the grid itself receives the blocks, so no allocation per transform.
+- The plans use FML's planner flag (`set_fftw_planner_flag`, as FFTWGrid) instead of always `FFTW_ESTIMATE`.
+- `PencilDomain/tests/benchmark_pencil_grid`: forward + inverse FFT against FFTWGrid. At Nmesh = 64 - 256 PencilGrid
+  on slabs went from 1.6 - 3.8 times FFTWGrid's time to 0.9 - 1.3 on 2 tasks (1 - 1.9 on 1 task). The tests pass on
+  1 - 6 tasks.
+
+### The Peano-Hilbert domain, DistributedGrid3D and AdaptiveMPIGrid use FML's communicator
+- `PeanoHilbertDomain::build(keys, bits, histogram_bits)` and `DistributedGrid3D::exchange_halo()` /
+  `fetch_remote_cells(cells)` no longer take a communicator (it defaulted to `MPI_COMM_WORLD`; the module was
+  standalone): they are collective over `FML::communicator`, so the owner ranks are FML's tasks, as `MPIParticles` and
+  the rest of `Domain` assume. The `int comm` stand-in without MPI and `communicator_rank` / `communicator_size`
+  (`HilbertCurve.h`) are removed. The example, the module test and `test_domain` updated; tested on 1 - 4 tasks and
+  without MPI.
+- `AdaptiveMPIGrid` (and its example): `FML::communicator` instead of `MPI_COMM_WORLD` in all its MPI calls (it
+  already took the rank and the number of tasks from FML); its test and example run on 1 - 4 tasks.
+- `AdaptiveMPIGrid<3>::get_domain()`: the partition of the curve as an `FML::Domain` (a `PeanoHilbertDomain` with the
+  same keys and 21 bits), and `MPIParticles::set_domain(domain)`: change the domain and move the particles to their
+  new owners (collective). So particles follow the grid through load balancing:
+  `grid.load_balance(); particles.set_domain(grid.get_domain());`. Tested in the AdaptiveMPIGrid test on 1 - 6 tasks
+  (refinement and load balancing around a particle cluster): the domain owns every local leaf and agrees with
+  `owner_of_key`, and after `set_domain` every particle is in a local leaf and none is lost.
+- `AdaptiveMPIGrid<3>(levelmin, levelmax, periodic, domain)`: start on a given `PeanoHilbertDomain` (its boundaries
+  on cells at levelmin; any bits <= 21) instead of equal parts of the curve. Tested with the load-balanced domain of
+  the particles; the default constructor gives the same grid as before (the same global hashes).
+
+### PencilGrid<N> with the interface of FFTWGrid; PencilDomain is only the pencils
+- `PencilGrid<N>` (N = 2, 3) rewritten to look like `FFTWGrid<N>` (the aim: one grid class that takes a `Domain`):
+  `PencilGrid<N>(Nmesh, n_extra_left, n_extra_right[, PencilDomain])`, range loops over indices
+  (`get_real_range`, `get_real_range_of_rows`, `get_fourier_range`), `get_coord_from_index` / `get_index_real`,
+  `get_real` / `set_real` / `add_real` (and `_from_index`) and the Fourier versions, positions in [0,1), wave-vectors
+  2 pi n, the forward transform normalized by 1/Nmesh^N (it was the backward one), coordinates in axis order in both
+  spaces, the free `fftw_r2c` / `fftw_c2r`, `communicate_boundaries` and `add_contribution_from_extra_cells` (the
+  extra cells in x and, in 3D, y), `nan_in_grids`, `info`. The cell structs, the duplicate getters, the physical
+  units and the 1D (all-gather) path are gone.
+- The grid layout (mesh, box size, communicators, FFT workspace, cell and mode ranges) moved from `PencilDomain` into
+  `PencilGrid`: `PencilDomain` is the process grid and the edges, like `SlabDomain` (the edges of a grid's domain
+  must lie on its cells; the default pencils put them on cells as evenly as possible, so any Nmesh works).
+  `PencilIndexRange`, `PencilWorkspace` and the `FML::GRID::PencilDomain` alias are removed.
+- Tested on 1 - 6 tasks (also with OpenMP and bounds checks): the Fourier transform equals `FFTWGrid`'s, the round
+  trip, the layout and indices, the extra cells with the corners and their contribution back, copies, the particle
+  domain; 2D and 3D, every process grid, uneven pencils, odd meshes.
+
+### MPIParticles: creation by the domain, cleanup, versioned dump files
+- `create(part, n, nallocate, Input, keep = {})` (pointer or vector): `Input::Replicated` (every task has the same
+  particles: each keeps those it owns), `Input::Distributed` (different particles anywhere: sent to their owners in
+  batches) or `Input::Local` (already this task's: taken as given); `keep` is an optional filter (e.g. a particle
+  type). Ownership is the domain's (the given one, else the global one), so it works for every domain type.
+  `create_particle_grid(N, buffer_factor)` (the domain gives the range; Slab only for now). Every call site updated
+  (library, examples, SimulationCode tests, BUILDING.md).
+- The old `create(part, n, nallocate, xmin, xmax, all_tasks_have_the_same_particles)`, `create(vector, nallocate,
+  selection)` and `create_particle_grid(N, buffer_factor, xmin, xmax)` are kept, marked `[[deprecated]]`: thin
+  wrappers (the ranges give the particles' Slab domain, as before) tested to give the same as the new ones.
+- The domain is an optional (empty until the particles are created or loaded); the grid-creation state
+  (`Npart_1D`, `Local_Npart_1D`, `Local_p_start`, `buffer_factor`) are local variables; `get_capacity()`.
+- `dump_to_file` / `load_from_file`: a new format (only a test used it): a header (`MPIParticlesFileHeader`: magic
+  string, version, number of tasks and the task, NDIM, `sizeof(T)`, the counts) and the domain (`Domain::write` /
+  `Domain::read`, every type), then the particles in chunks as before. Files of another particle type, number of
+  tasks or an older version are refused; with a domain given to the constructor the file's must match.
+- `SimulationCode/tests/test_cola_frame.cpp`: every task keeps its own copy of the test particle (`Input::Local`; the
+  old call gave every task the range [0,1)).
+- Tested: the particle tests and the domain tests (every domain type through `Input::Distributed`,
+  `Input::Replicated` and dump/load) on 1 - 6 tasks; the core, NBody, reconstruction, streamed-kick and Analysis
+  tests on 1, 2 and 4; the SimulationCode short-range and COLA-frame tests and the short-range (COLA) regression
+  scripts with MPI.
+
+### One Peano-Hilbert key class; PeanoHilbertDomain and PencilDomain
+- `HilbertCurve<NDIM>` (Skilling's transpose algorithm, NDIM = 2-6) moved from `AdaptiveMPIGrid/` to
+  `PeanoHilbertDomain/HilbertCurve.h`: FML's one key implementation. The Peano-Hilbert module's own 3D key code is
+  replaced by it (the keys are identical: checked on 10^6 random cells at 1 - 21 bits), and `Global/Domain.h` uses it.
+- `Global/Domain.h` holds the three domain classes and `Domain`, one of them (a `std::variant`; `get<T>()`, the
+  ownership lookups a switch on the type, no virtual calls): `SlabDomain`, `PencilDomain` (pencil edges; made from a
+  mesh also the layout of a pencil grid: cells and Fourier modes per rank, the Cartesian/row/column communicators and
+  the FFT workspace, shared by its copies; implementation in Global.cpp) and `PeanoHilbertDomain` (key ranges, `build`
+  load-balanced from particle keys; the former `Decomposition` of `PeanoHilbertDecomposition/`). Global.h includes
+  Domain.h at its end (the FFTW types are declared there). The old names `FML::GRID::PencilDomain` and
+  `FML::DOMAIN_DECOMPOSITION::PEANO_HILBERT::PeanoHilbertDomain` are aliases.
+- `PeanoHilbertDecomposition/` is now `PeanoHilbertDomain/`: `HilbertCurve.h` (the keys, also the 3D helpers
+  `key_from_position` etc.) and `DistributedGrid3D.h`; `PeanoHilbertDecomposition.h` removed. Its example and tests link
+  Global.o and use FML's MPI setup.
+- `PencilDecomposition/` is now `PencilDomain/` with `PencilGrid.h/.cpp` only (`PencilDecomposition.h/.cpp` removed).
+  The ownership of positions is that of the pencil edges, the edges of each rank's cells; `particle_domain()` gives the
+  `Domain` for `MPIParticles` (a Slab when the process grid has one column); tested against the cell ownership at
+  random periodic positions (`coord0_of_x`, `coord1_of_y` removed). The MPI datatypes are `const`, not `constexpr`
+  (Open MPI does not compile them), and the example relies on FML's automatic MPI/FFTW setup (it initialized MPI
+  twice).
+- `AdaptiveMPIGrid/example/Makefile`: `FML_INCLUDE` defaults to the repository it is in (it was `~/local/FML`, so
+  `make examples` failed elsewhere).
+
+### Domain: the particle decomposition as an object (Slab, Pencil, Peano-Hilbert)
+- `Global/Domain.h`: which task owns a point of [0,1)^NDIM: inline `owner()`, `owner_near(task, ...)` (a Slab's
+  neighbours first) and `contains()` for Slab (any per-task ranges, empty slabs allowed), Pencil (px x py process
+  grid in (x, y), rank ix * py + iy as PencilDomain, NDIM >= 2) and PeanoHilbert (key ranges of `HilbertCurve<3>`,
+  NDIM = 3; also from a load-balanced `PeanoHilbertDomain`). Comparisons in the position's own
+  type (long double positions are not rounded). The global `FML::domain` (Global.h) is a Slab whose ranges are
+  `FML::xmin_domain`, `FML::xmax_domain` (`FML::get_domain()`, collective); `FML::set_domain`,
+  `slab_domain_from_local_range`, `pencil_domain(px, py)`. Pencil and PeanoHilbert are a preparation for supporting
+  them in more of FML: choosing one gives a warning.
+- `MPIParticles`: a new constructor taking a domain (otherwise the global one, taken when the particles are created,
+  as before). `communicate_particles` is one loop for every domain (`contains`, `owner_near`; the boundary convention
+  on the coordinates the domain uses), as are `create(vector, ...)` and `move_from`; `create(..., xmin, xmax, ...)`,
+  `create_particle_grid`, `dump_to_file` and `load_from_file` assert a Slab. `get_domain()`; `get_x_min_per_task`,
+  `get_x_max_per_task` (unused) removed.
+- Tested (`tests/test_domain.cpp`, 1 - 6 tasks): owner() of every type against brute force (the module's
+  Peano-Hilbert keys), owner_near = owner, communication with uniform and uneven slabs, pencils (2D, 3D, uneven
+  grids) and Peano-Hilbert (uniform, load-balanced) keeps every particle and puts it on its owner. With the default
+  Slab nothing changes: the SimulationCode regression outputs are bit-identical (all 65 cases, 2 tasks) and the CI
+  passes.
+
+### Einstein-Boltzmann solver: symmetron, dilaton and (m(a), beta(a)) models
+- `symmetron` (`sym_assb`, `sym_beta`, `sym_L_mpch`, `sym_N`, `sym_M`), `dilaton` (`dil_A2`, `dil_beta0`, `dil_r`,
+  `dil_xi`) and `mbeta` (`mb_beta0`, `mb_n_beta`, `mb_m0`, `mb_n_m`): the LCDM background with the quasi-static
+  mu(k, a) of `QuasiStaticGravity_Symmetron.h`, `_Dilaton.h`, `_MBeta.h` (the force of SimulationCode's gravity
+  models of the same names) in the mu-Sigma equations, through the new generic `PerturbationModel_QuasiStatic.h`
+  (any QuasiStaticGravity on LCDM). Example files `params/symmetron.ini`, `dilaton.ini`, `mbeta.ini`.
+- Validated (`tests/test_quasistatic_models.cpp`): the growth of delta_cdm from z = 49 to 0 relative to LCDM at k =
+  0.05 - 2.5 /Mpc agrees with the quasi-static growth equation solved independently with the same mu(k, a) to 2e-4
+  (and so does `fr`).
+
+### K-mouflage (as Hi-COLA)
+- `SimulationCode/input/horndeski/kmouflage.json`: K-mouflage (K = -1 + X + K0 X^2, A = exp(beta phi); n = 2,
+  K0 = 1, beta = 0.2) in the Jordan frame, as Hi-COLA (Sen Gupta, Fiorini & Baker 2024): the reduced Horndeski theory
+  G4 = 1/(2 A^2), K_J = lam^2 K(A^2 X / lam^2) / A^4 - 6 beta^2 X / A^2, written in the field 1/A^2 (rational, fast
+  for sympy), started on its radiation-era attractor, lam shot for H0. The Newtonian force is rescaled by A^2 and the
+  fifth force is linear (G3X = 0: no Vainshtein term; the kinetic screening is not modelled, as in Hi-COLA). Through
+  the generic Horndeski route: `cosmology_model = gravity_model = Horndeski`, IC and CMB from `horndeski_table`.
+- The frontend's `dphidlna_ini` can use `a` (= a_ini).
+- Validated: the table's H(a), A^2 and G_eff = A^2 (1 + 2 beta^2 / K_X) agree with an independent Einstein-frame
+  integration mapped to the Jordan frame to 2e-7 (`tests/check_horndeski_frontend.py`); the solver's full
+  perturbations have the table's G_eff on small scales to 1e-6 (`test_horndeski_table`); the simulation's growth
+  agrees with the solver's transfer functions to 4e-5. Regression case `horndeski_kmouflage_cola`, transfer table
+  `input/transfer_tables/horndeski_kmouflage.txt`.
+
+### Einstein-Boltzmann solver: reduced Horndeski from its Lagrangian (horndeski_table)
+- `horndeski_table` (`model_file`, `hd_stability_check`): the background (`BackgroundModel_HorndeskiTable.h`) and the
+  alpha-parameterization perturbations (`PerturbationModel_HorndeskiTable.h`, full, stability checked) of the table
+  of `SimulationCode/scripts/horndeski_frontend.py`, which now also derives M*^2, alpha_K, alpha_B, alpha_M, their
+  derivatives and the matter term Rx from K, G3, G4 (Bellini & Sawicki 2014, simplified symbolically). New string
+  parameter `model_file` (CosmologyParameters, BackgroundParameters, the .ini files); the table's Omega_m and Omega_r
+  are checked against the run. `params/horndeski_table.ini`.
+- The frontend: tables from a = 1e-8 to 3 by default (the solver's range); Omega_r as FML computes it; the initial
+  field velocity of `initial = early` can be an expression (the tracker: `xi / E**2`); the cubic Galileon example
+  starts on its tracker.
+- Validated (`tests/test_horndeski_table.cpp`): the cubic Galileon from its Lagrangian reproduces `cubic_galileon`
+  (H 2e-7, growth and Psi 1e-6; P(k) 2e-5 and C_ell^TT 3e-6 with `cmb`); Brans-Dicke's full solution has the
+  frontend's quasi-static G_eff on small scales to 1e-6; a table made for another Omega_m is refused.
+- SimulationCode: `cosmology_model = Horndeski` (`cosmology_horndeski_filename`; the IC of `ic_type_of_input =
+  internal` from `horndeski_table`); `gravity_model_horndeski_filename` defaults to that table. The cubic Galileon run
+  through it gives the P(k) of the CubicGalileon models to 1e-5 (IC included). Regression cases now use it, with the
+  transfer table `input/transfer_tables/horndeski_cubic_galileon.txt`.
+- The dark energy of an H table (`make_tabulated_E`) has an analytic d2rhodx2 from its spline (the default finite
+  difference with step 1e-3 mixed spline intervals: 8e-5 relative errors).
+
+### SimulationCode: generic reduced Horndeski (as Hi-COLA)
+- `scripts/horndeski_frontend.py`: from K(phi, X), G3(phi, X), G4(phi) (sympy expressions in a JSON file; examples
+  in `input/horndeski`) it derives the background equations from the minisuperspace action, solves them (from today
+  with dphi/dlna from the Friedmann constraint, or from early times shooting a parameter for E(a = 1) = 1) and writes
+  H(z) (for `cosmology_model = Tabulated`) and the quasi-static force (Kimura, Kobayashi & Yamamoto 2012): the
+  Newtonian force rescaled by 1/(2 G4) and a fifth force of the DGP form with r_c(a), beta(a). The coefficients are
+  simplified symbolically with the background equations, so their GR parts cancel exactly.
+- `FML/Cosmology/Perturbations/QuasiStaticGravity_Horndeski.h` (the theory from the table: mu, Sigma, the 2LPT source,
+  the Vainshtein screening) and `gravity_model = Horndeski` (`gravity_model_horndeski_filename`, `_exact_solution`,
+  `_smoothing_filter`, `_smoothing_scale_over_boxsize`): linear, screening approximation or DGP's multigrid solver.
+  `GravityModelScreened::newtonian_factor` rescales the Newtonian part of the force (1 for the other models).
+- Validated (`tests/check_horndeski_frontend.py`): the cubic Galileon's G_eff and r_c, Brans-Dicke's G_eff =
+  (4 + 2 omega) / ((3 + 2 omega) phi) and Sigma = 1/phi (to 1e-12), the Brans-Dicke attractor; with the cubic Galileon
+  tables the model gives the P(k) of `gravity_model = CubicGalileon` to 4e-6 (linear, screening, multigrid).
+- Regression cases `horndeski_cubic_galileon_cola`, `horndeski_cubic_galileon_exact_multigrid`,
+  `horndeski_brans_dicke`.
+
+### SimulationCode: density smoothing for the cubic Galileon's screening
+- `gravity_model_cubic_galileon_smoothing_filter` and `_smoothing_scale_over_boxsize`, as for DGP (default: none).
+
+### SimulationCode: interacting dark energy
+- `cosmology_model = IDE` (`cosmology_ide_w`, `cosmology_ide_xi`, `cosmology_ide_cs2`): the background and IC of FML's
+  `ide`, the energy exchange Q = xi H rho_DE along the dark-matter 4-velocity, perturbed (as in the solver) by the
+  local expansion of the dark matter. On sub-horizon scales a CDM particle gains xi/3 rho_DE times the change of its
+  volume and keeps its momentum: the particles carry their own masses, updated before the force of every step from
+  the number density on the particle grid (`src/SimulationIDE.h`; `ParticleWithMass` has a volume field, the default
+  particle type is now 120 bytes in 3D). The linear mass growth m1(a) enters the source of D1
+  (`GravityModel::ide_mass_growth`, iterated with the growth), so the COLA frame follows the particles. The mean CDM
+  mass is `cdm_mass_factor(a)` (the Poisson normalization, the species weights).
+- Validated (xi = -0.1, w = -0.9, 32^3 particles in 1000 Mpc/h, 1e-4 times the power, against the solver's transfer
+  functions): the extra growth over xi = 0 from z = 49 to 0 (+10.3% for delta_cb; uniform mass changes would give
+  +2.4%) agrees to 6e-4 for k < 0.02 h/Mpc (CDM and baryon particles: CDM 7e-4, baryons 1e-4), 8e-3 too small for
+  k < 0.05 h/Mpc (the volume is smoothed on the particle grid); COLA as Quinn. In the nonlinear regime the CDM in
+  voids runs out (the masses stop at zero).
+- Not with massive neutrinos; with `particle_baryons` only with the displacement relative mode, not with BullFrog.
+- Regression cases `ide_cola`, `ide_baryons_quinn` (table `input/transfer_tables/ide.txt`).
+
+### SimulationCode: the cubic Galileon
+- `FML/Cosmology/Perturbations/QuasiStaticGravity_CubicGalileon.h`: the quasi-static cubic Galileon on its tracker,
+  derived from the scalar field equation: the DGP brane-bending equation with r_c(a)^2 = E^2 / (2 Omega_phi(a)
+  Omega_phi0) and beta(a) = (1 - 2 dlnH/dlna - Omega_phi(a)) / (3 Omega_phi(a)); mu = Sigma = 1 + 1/(3 beta) (1.77
+  today; the quasi-static limit of the Einstein-Boltzmann solver's equations), the 2LPT source and the Vainshtein factor of the spherical top-hat.
+- `cosmology_model = CubicGalileon` (the tracker background, no parameters) and `gravity_model = CubicGalileon`
+  (needs it): linear, the screening approximation (also the stronger force in underdense regions) or the exact
+  equation with DGP's multigrid solver (`gravity_model_cubic_galileon_exact_solution`). In deep voids (delta < -0.6
+  today) the equation has no real solution: `DGPSolverCosmology::set_allow_negative_discriminant` sets the
+  discriminant to zero there (and counts the cells) instead of stopping, as Barreira et al. 2013 (arXiv:1306.3219).
+- Validated: linear growth from z = 49 to 0 over the same background with GR, +2.03% in the simulations (linear,
+  screening and multigrid alike) vs +2.07% from the quasi-static growth equation; nonlinear P(k)/P_GR at z = 0 (256
+  Mpc/h, 64^3): 1.04-1.065 for k = 0.03-1.5 h/Mpc with the exact equation, 1.03-1.06 with the screening approximation
+  (1.04-1.21 without screening). `test_galileon` checks mu, Sigma and the 2LPT source against the solver's equations.
+- Regression cases `cubic_galileon_cola`, `cubic_galileon_exact_multigrid`.
+
+### Covariantised dark Thomson-like scattering
+- Einstein-Boltzmann solver: `covariant_dark_scattering` (`cds_alpha`, `ds_w`, `ds_cs2`), the interaction
+  Q^mu = alpha_bar (u_DE^mu - u_c^mu) (Beltran Jimenez et al. 2020): the dark-scattering equations with the rate
+  Gamma_c = alpha H0 a^4 / Omega_c0, Gamma_DE = Gamma_c rho_c / ((1 + w) rho_DE) (`DarkScatteringRate::Covariant` in
+  `SpeciesPerturbation_DarkScattering`; wCDM background). Tests (`test_dark_scattering.cpp`): alpha = 0 is wCDM, the
+  Einstein constraints hold, the growth follows the two-fluid growth equations with the drag (to 1e-6), suppression.
+- SimulationCode: `cosmology_model = CovariantDarkScattering` (`cosmology_ds_w`, `cosmology_cds_alpha`,
+  `cosmology_ds_cs2`): the dark-matter drag alpha a^3 / (Omega_c0 E) per ln a
+  (`BACKGROUND::covariant_dark_scattering_cdm_drag`), with one set of CDM+baryon particles and `particle_baryons`.
+- Validated (alpha = 1, w = -0.98, as arXiv:2510.12551): the simulations follow the growth of the N-body equations to
+  1e-3 (separate CDM and baryons; one set of particles overestimates the CDM+baryon suppression by 2.4e-3 with this
+  strong drag) and the solver for k > ~0.05 h/Mpc. On larger scales the solver's dark energy moves with the dark
+  matter (v_DE / v_c = 0.43 at k = 0.0075 h/Mpc), which the N-body equations neglect (as the N-body work on these
+  models): CDM suppression -9.1% (N-body) vs -6.2% (solver) at k = 0.008 h/Mpc.
+- Regression cases `covariant_dark_scattering_cola`, `covariant_dark_scattering_baryons_fastpm` (table
+  `input/transfer_tables/covariant_dark_scattering.txt`).
+
+### Corrections to the validation of dark scattering with baryon particles and of coupled quintessence
+- The "linear theory" column of SimulationCode's P(k) files is P(k, zini) times the growth of the code's gravity model
+  (`linear_pofk_cb`), not the solver's P(k) at the output, so the comparisons with it in the two entries below were
+  against the code's own one-fluid growth. Against the solver's transfer functions directly: coupled quintessence
+  agrees to 4-7e-4 at k = 0.02-0.03 h/Mpc (larger in the largest-scale bin and towards the particle Nyquist
+  frequency); dark scattering (w = -0.9, xi = 50) agrees per species for k > ~0.07 h/Mpc but the solver has less
+  suppression on larger scales (its dark energy moves with the dark matter; CDM -4.9% instead of -6.2% at k = 0.008
+  h/Mpc). MODELS.md and SPECIES.md are corrected.
+
+### SimulationCode: coupled quintessence
+- `cosmology_model = CoupledQuintessence` (`cosmology_cq_lambda`, `cosmology_cq_beta`): the background and IC of FML's
+  `coupled_quintessence`, with the varying CDM mass (rho_c a^3 ~ exp(-beta phi)) in the Poisson normalization
+  (`Cosmology::clustering_mass_factor`; exactly 1 for the other models).
+- `gravity_model = CoupledQuintessence` (needs that cosmology, as JBD): the CDM feels G (1 + 2 beta^2) from the CDM
+  and the velocity term +beta phi' v. One set of CDM+baryon particles: a momentum-weighted fluid (G_eff/G = 1 + 2 beta^2
+  f_c^2, friction f_c (-beta phi')). With `particle_baryons = true`: the PM force is gravity alone, the CDM gets the
+  fifth force of the CDM density in a second kick (`kick_cdm_fifth_force`, no extra memory), its own friction and
+  steps; delta_cb, the species P(k), shot noise, IC and halo masses use the time-dependent CDM fraction
+  (`cb_weight`). Not with massive neutrinos; with particle_baryons not with BullFrog or the short-range force.
+- `GravityModel`: the velocity friction is the gravity model's (`velocity_friction`, `velocity_friction_cdm`,
+  `velocity_friction_integral`; by default the cosmology's, i.e. dark scattering), plus `GeffOverG_gravity` and
+  `has_cdm_fifth_force` / `cdm_fifth_force_coupling` for a force of the CDM on the CDM alone.
+- `src/SpeciesTimeStepping.h`: the two-fluid growth with species couplings and a varying CDM fraction (dark
+  scattering unchanged, bit-identical).
+- Validated against the Einstein-Boltzmann solver (lambda = 0.5, beta = 0.15, relative to beta = 0): one-fluid growth
+  to 1e-4; simulations (Quinn, FastPM, COLA + Quinn/FastPM) to 7-9e-4 for the CDM, baryons and CDM+baryons (the
+  resolution), delta_b/delta_c at z = 0 to 3e-4. Regression cases `coupled_quintessence_cola`,
+  `coupled_quintessence_baryons_cola`, `_fastpm` (table `input/transfer_tables/coupled_quintessence.txt`); the
+  existing cases are bit-identical.
+
+### SimulationCode: dark scattering with CDM and baryon particles
+- `cosmology_model = DarkScattering` with `particle_baryons = true`: the CDM particles feel the full drag
+  (`Cosmology::velocity_friction_cdm`), the baryon particles none. Both take the steps of the CDM+baryon fluid with
+  their own kick, drift and velocity factors (`src/SpeciesTimeStepping.h`): Quinn/Tassev from the species' friction,
+  FastPM from the two-fluid linear growth (D_c, D_b sourced by delta_cb). With COLA the CDM+baryon frame plus the
+  term (velocity factor of the species - that of the frame) v_LPT per kick. Not with BullFrog or neutrino particles.
+- `FML/NBody/TimeStepping.h`: `restep(steps)` (the coefficients of another species at the same scale factors) and
+  an optional `force_growth` (FastPM with several species). The one-species steps are unchanged.
+- Validated (1e-4 times the power, relative to wCDM): CDM / baryons / CDM+baryons follow the two-fluid growth to
+  <= 6e-4 with Quinn (200 steps), FastPM (10), COLA + Quinn (10) and COLA + FastPM (10); the CDM+baryon growth agrees
+  with the Einstein-Boltzmann solver to 7e-4 (2x force grid; finer grids damp the CDM-baryon difference on the same
+  lattice, see SPECIES.md). Test: `tests/test_timestepping.cpp` (the exact EdS two-species growing mode with FastPM at
+  any step size, second-order convergence of Quinn, restep). Regression cases `dark_scattering_baryons_cola` and
+  `_fastpm` (table `input/transfer_tables/dark_scattering.txt`); the existing cases are bit-identical.
+- `tests/make_transfer_tables.py` writes the axion IC defaults (it failed with all_parameters_must_be_in_file).
+
+### SnapshotAnalyzer: hybrid bias spectra
+- `hybridbias = true` (`hybridbias_*`): the 15 cross spectra P_ab(k) of the Lagrangian bias operators
+  (1, delta_L, delta_L^2, s^2, nabla^2 delta_L) advected with the particles of a snapshot; `hybridbias_z<z>.txt` with
+  SimulationCode's columns plus Plinear(k), the linear field of this realization in the same bins. The linear field
+  comes from either
+  - an initial-conditions snapshot of the same particles (`hybridbias_ic_snapshot`): the lattice and its offset are
+    found from the positions, the displacement Psi = x - q gives delta_L = -div Psi with a 2LPT correction
+    (`hybridbias_ic_lpt_correction = "2lpt"`), and the particles are matched to the lattice by ID (any ID scheme);
+  - or a linear field file (`hybridbias_linear_field_source = "file"`), with the lattice index from the particle IDs
+    (`id - hybridbias_id_offset`, SimulationCode's convention) or, if also given, from the IC snapshot.
+  It is scaled to the snapshot with D(z)/D(z_L) of the analysis cosmology (or `hybridbias_growth_ratio`).
+- SimulationCode: `hybridbias_output_linear_field = true` writes the linear field of the IC
+  (`hybridbias_linear_field_<name>.dat`, format in `FML/ComputePowerSpectra/HybridBiasLinearFieldIO.h`, also
+  writable from numpy).
+- Shared code: `FML/Analysis/HybridBias.h`.
+- Validated against SimulationCode's in-run spectra (64^3 in 256 Mpc/h, z = 20 to 0): from the linear field file
+  equal to 2e-5 of sqrt(P_aa P_bb) (float32 positions), from the IC snapshot to < 0.3% for most pairs and 0.8% for
+  delta^2 delta^2 and s^2 s^2 with the 2LPT correction (up to 18% without it), identical on 1, 2 and 4 tasks; with
+  the same radiation content (`cosmology_Omega_r`), else D(z)/D(z_L) is 0.4% high from z = 20.
+- Tests: `Analysis/tests` (growth ratio in EdS and LCDM, the file round trip, the field of a Zel'dovich lattice, ID
+  matching, errors); `SnapshotAnalyzer/tests` (both sources agree, Plinear, independent of the number of tasks).
+- Fixed: the cosmic-web/Minkowski particle front-end test compared floats exactly and could fail with threads.
+
+### SnapshotAnalyzer: cosmic web and Minkowski functionals
+- `cosmicweb = true` (`cosmicweb_*`): T-web classification of the Gaussian-smoothed density; `cosmicweb_z<z>.txt`
+  with the volume and mass fractions of voids, sheets, filaments and knots for each eigenvalue threshold.
+- `minkowski = true` (`minkowski_*`): Minkowski functionals V0-V3 of the excursion sets of the smoothed density
+  contrast (thresholds in nu = delta / sigma_0 or delta; FML/Morphology, Crofton estimator) with the Gaussian random
+  field predictions for the sigma_0 and sigma_1 of the same field and the Euler characteristic; `minkowski_z<z>.txt`.
+- Shared code: `FML/Analysis/CosmicWeb.h`, `Minkowski.h` and `DensityGrid.h` (density contrast grid, Gaussian
+  smoothing). The SnapshotAnalyzer Lua reader also reads lists of numbers (`std::vector<double>`).
+- Tests: `Analysis/tests` on a Gaussian random field: T-web fractions at lambda_th = 0 of (0.08, 0.42, 0.42, 0.08)
+  (Doroshkevich 1970) and Minkowski functionals equal to the predictions (~1% for V0, V1, 5% V2, 8% V3 of their
+  amplitude), sigma_1/sigma_0 of smoothed white noise; `SnapshotAnalyzer/tests`: independent of the number of tasks,
+  the knots are the blobs (their mass fraction), the excursion sets of the blobs have Euler characteristic 3.
+
+### SnapshotAnalyzer: bispectrum
+- `bispectrum = true` and the `bispectrum_*` parameters (SimulationCode's names; defaults nmesh 128, nbins 16, CIC,
+  interlacing): `bispectrum_z<z>.txt` with SimulationCode's columns. Shared code: `FML/Analysis/PowerSpectrum.h`
+  (`BispectrumSettings`, `measure_bispectrum`, `write_bispectrum`). On a SimulationCode snapshot it equals
+  SimulationCode's bispectrum to the float32 precision of the Gadget positions (~2e-6).
+- Tests: `Analysis/tests` (equals `compute_bispectrum`, k in h/Mpc, the file, settings checks) and
+  `SnapshotAnalyzer/tests` (independent of the number of tasks and read mode, symmetric, B > 0 on large scales).
+
+### FriendsOfFriends: relaxed FoF
+- `FriendsOfFriends/RelaxedFoF.h`: `FML::FOF::RelaxedFriendsOfFriends`, the relaxed FoF of Dai, Feng, Seljak & Singh
+  2019 (arXiv:1908.05276) as in FastPM (`libfastpm/rfof.c`): FoF passes with a linking length per halo-size bin
+  (longer for small halos; eqs. 2.2-2.5) and rejection of fake halos by their 3D velocity dispersion (eqs. 2.1, 2.6).
+  FastPM's fitted parameters are the defaults; `paper` mode adds the shrinking linking length of Algorithm 1. The
+  particles are not reordered. See `FriendsOfFriends/RelaxedFoF.md` (also: with the default parameters r0(z) <= 0,
+  i.e. every halo rejected, for z > 2.2).
+- `FriendsOfFriends`: an optional `mean_particle_separation` (the linking length of a subset in units of the
+  separation of the whole simulation); tasks without particles are now allowed (before: an error); `FoF_verbose`.
+- SimulationCode: `fof_relaxed = true` and the `fof_relaxed_*` parameters; the halo catalogue then has the pass,
+  bin, linking length and sigma_v / V_std of each halo (text columns, HDF5 group `RelaxedFoF`).
+- SnapshotAnalyzer and FML/Analysis (`HaloSettings`, `find_halos`): the same `fof_relaxed*` parameters, defaults and
+  catalogue columns; the redshift, E(z) and units come from the AnalysisContext. Tests: `Analysis/tests` (the
+  catalogue equals RelaxedFriendsOfFriends, a hot clump is rejected) and `SnapshotAnalyzer/tests` (both modes on
+  1/2/4 tasks; with scipy the halos of the independent implementation).
+- Tests (`FriendsOfFriends/tests`, 1/2/4 MPI tasks): the halos equal those of an independent scipy implementation
+  (`make_rfof_reference.py`) for both modes at three redshifts; standard FoF; subsets with empty tasks.
+
+### Emulator/NeuralNetwork: neural-network emulators (train and evaluate in C++)
+- `Emulator/NeuralNetwork/NeuralNetwork.h` (header only): `FML::EMULATOR::NEURALNETWORK::NeuralNetwork` (fully
+  connected, 9 activations, input/output standardization, `evaluate`, `jacobian`, text `save`/`load`) and `train()`
+  with the recipe of the Sesame pipeline's Emulator.py (PyTorch Lightning): Adam with L2 weight decay, gradient-norm
+  clipping, ReduceLROnPlateau, early stopping and stochastic weight averaging, with the same defaults except two:
+  standardized data and Glorot initialization (Emulator.py's N(0, 1e-3^2) starts on a ~50-epoch plateau, also in
+  PyTorch, where its schedule and early stopping end the training). Also `read_csv_columns`.
+- `export_lightning_emulator.py`: a trained Emulator.py checkpoint to the FML format.
+- Tests against PyTorch (outputs, losses, gradients, clipped Adam steps to ~1e-15; ReduceLROnPlateau; an exported
+  checkpoint) and finite differences; an example emulating a linear P(k) in (Omega_m, sigma8, n_s).
+
+### LatinHyperCube: Latin hypercube sampling
+- `LatinHyperCube/LatinHyperCube.h` (header only): `FML::SAMPLING::LatinHyperCube`, after
+  `scipy.stats.qmc.LatinHypercube` (scipy 1.18): strength 1 and orthogonal-array strength 2 (n = p^2, p prime),
+  `scramble`, the `random_cd` (centered-discrepancy swaps, O(n d) per proposal) and `lloyd` optimizations, `random`,
+  `integers`, `reset`, `fast_forward`; also `scale` and `centered_discrepancy` (equal to scipy's documented value).
+- Portable seeds (the same points with every standard library, not numpy's). Lloyd uses Monte Carlo centroids of the
+  Voronoi cells clipped to the cube instead of Qhull vertex means. Tests in `LatinHyperCube/tests`, example in
+  `LatinHyperCube/example`.
+
+### ReACT: native halo-model reaction; the external backend removed
+- `nonlinear = react` now computes the halo-model reaction natively: `SphericalCollapse/ScreenedSphericalCollapse.h`
+  (spherical collapse with a screened fifth force: Hu-Sawicki f(R) thin shell, nDGP Vainshtein, the most probable
+  environment), `HaloModel/HaloModelReaction.h` (real and pseudo one-halo terms, E, k*, massive neutrinos;
+  `ReactionTable` for the solver) and `PerturbationTheory/MGOneLoop.h` (one-loop P with kernels evolved in time with
+  mu, gamma2, gamma3, for k*). No external code, no `USE_REACT`, no SUNDIALS; `react_z_max` may now be up to 10.
+- Against ACTio-ReACTio (a36dda02): delta_c to 8e-5, the one-halo terms to 2e-3, R to 2e-4 (f(R)) and 6e-4 (nDGP),
+  1e-3 (CPL with neutrinos) for z <= 2 (`tests/test_screened_collapse`, `tests/test_halomodel_reaction`,
+  `PerturbationTheory/tests/test_mg_oneloop`). Solver: `EinsteinBoltzmannSolver/tests/test_react_physics` (f(R) N-body
+  fit, limits, w0wa and neutrinos against HMcode-2020).
+- Intentional difference: the f(R) third-order screening term gamma3 is the correct one (Koyama, Taruya & Hiramatsu
+  2009 eq. 3.6; Bose & Koyama 2016 eqs. 2.14, 2.34; checked against the exact expansion of the field perturbation);
+  ACTio-ReACTio's (BeyondLCDM.cpp) is 1/3 of it. R differs by up to ~3e-3 for |fR0| = 1e-5. New option
+  `react_compat_gamma3 = true` (and `mg_hu_sawicki(..., react_gamma3 = true)`) reproduces ReACT.
+- Also avoided: ACTio-ReACTio's bracket of the initial overdensity in the modified-gravity collapse (delta_c pinned at
+  the bracket edge at high z, 5% low at z = 2.3).
+- Removed: `FML/ReACT` (the wrapper of the external backend, its builder and tests), `USE_REACT`, `REACT_LIB`. The
+  reference values and the tools that regenerate them with the original code are in `tests/reference/react`.
+
+### Documentation: SimulationCode and Einstein–Boltzmann solver READMEs
+- `SimulationCode/README.md` is now an overview (features, building, running, output, a map of the documentation);
+  the details moved, unchanged, to `MODELS.md`, `INITIAL_CONDITIONS.md`, `EVOLUTION.md`, `SPECIES.md`, `ANALYSIS.md`
+  and `DEVELOPING.md`. The "see README" pointers in the parameter descriptions, warnings and `parameterfile.lua` now
+  name the right file (`PARAMETERS.md` regenerated).
+- `Cosmology/EinsteinBoltzmannSolver/README.md` likewise, with the details in `OPTIONS.md` (nonlinear spectra, tensor
+  and isocurvature modes, precision) and `DEVELOPING.md` (code layout, models, validation, the report).
+
+### Cosmology: one copy of the Eisenstein & Hu fits
+- `Cosmology/Spectra/EisensteinHu.h` (header only): the Eisenstein & Hu (1998) transfer functions with and without
+  the baryon wiggles and the power spectrum shapes k^n_s T^2 (k in h/Mpc). Replaces the four copies of the no-wiggle
+  fit in `Cosmology/Spectra/PowerSpectrumTwoPoint.cpp`, `HaloModel/HMcode2020.cpp`, `FieldLevel/FieldLevelBAO.h` and
+  `PerturbationTheory/tests/test_perturbation.cpp` (results equal to 2e-15); `PerturbationTheory/NoWiggle.h` uses it.
+
+### PerturbationTheory: wiggle/no-wiggle splits of the linear P(k)
+- `PerturbationTheory/NoWiggle.h`: the no-wiggle P(k) by the discrete sine transform method (Hamann et al. 2010,
+  Wallisch 2018; a port of velocileptors' pnw_dst, with a bump detection that does not depend on the sampling of P),
+  by a Gaussian smoothing of P / P_ref in ln k (Eisenstein & Hu no-wiggle reference by default) and by a
+  Savitzky-Golay filter; the Eisenstein & Hu (1998) transfer functions with and without wiggles.
+- `EPTRedshiftSpace` now defaults to the DST no-wiggle spectrum (`Options::nowiggle`; the Savitzky-Golay one of
+  velocileptors' REPT leaves ~2% wiggles at k ~ 0.1 - 0.3 h/Mpc and changes the multipoles by up to 3%).
+  `PerturbationTheory/tests/test_nowiggle`.
+
+### PerturbationTheory: IR-resummed one-loop EPT in redshift space (velocileptors)
+- `PerturbationTheory/EPTRedshiftSpace.h`: P(k, mu) and the multipoles P_0, P_2, P_4 of biased tracers in one-loop
+  Eulerian PT with IR resummation (wiggle/no-wiggle split, the wiggles damped by exp(-k^2 Sigma^2 (1 + f(2 + f) mu^2)
+  / 2)), Eulerian bias to cubic order, counterterms, stochastic terms, Alcock-Paczynski and bias-independent 19-column
+  tables. A port of velocileptors' REPT (MIT) and of the EPT velocity-moment tables behind it (`EPTVelocityMoments`).
+  The no-wiggle spectrum is user-supplied or velocileptors' Savitzky-Golay filter (cutoff applied once).
+- Reproduces velocileptors (its internal grid) to ~1e-8. That grid is not converged (0.2-0.5% at k = 0.3-0.5 h/Mpc
+  in the real-space P), so the default grid is 1e-5 - 1e3 h/Mpc with N = 6000: 6e-5 against the direct one-loop SPT
+  of OneLoop.h for k <= 0.5. `PerturbationTheory/tests/test_rept`.
+
+### PerturbationTheory: one-loop LPT of biased tracers in redshift space (velocileptors)
+- `PerturbationTheory/LPTRedshiftSpace.h`: P(k, mu) and the multipoles P_0, P_2, P_4 of biased tracers in one-loop
+  Lagrangian perturbation theory with resummed displacements (Chen, Vlah, Castorina & White 2021): bias up to cubic
+  order, EFT counterterms, stochastic terms, Alcock-Paczynski, an optional IR split. A port of velocileptors'
+  LPT_RSD (MIT); `LagrangianQFunctions.h` (its q-functions) and `FFTLog/SphericalBesselTransform.h` (its FFTLog).
+  Bias-independent multipole tables, so a fit of the bias/nuisance parameters only combines columns.
+- Reproduces velocileptors (its settings) to 7e-9. Those settings are not converged (jn = nmax = 5: P_2 off by up to
+  4% at k = 0.2 h/Mpc; ngauss = 3: P_4 to ~1%), so the defaults are jn = nmax = 10, ngauss = 4, N = 1024. Checked
+  against a direct integration of the redshift-space Zel'dovich P(k, mu) (0.02-0.12%), the real-space CLEFT of
+  HybridBiasOneLoop.h at f = 0 (2e-4) and the Kaiser limit. Odd N (1-10% errors) and log10_kmax > 1 are rejected.
+  `PerturbationTheory/tests/test_lptrsd`.
+
+### SimulationCode: a nonlinear P(k) prediction for f(R)
+- `FML/Emulator/FofrFittingFunction.h`: the fitting functions of Winther et al. 2019 (arXiv:1903.08798) for
+  P_f(R)/P_LCDM in Hu-Sawicky f(R) with n = 1, nonlinear (`nonlinear_boost`, 1e-7 <= |fR0| <= 1e-4, z <= 3,
+  k <= 10 h/Mpc) and linear (`linear_boost`), ported from github.com/HAWinther/FofrFittingFunction (identical to C/fit.c
+  on 4e5 points; the linear one follows Python/fit_lin.py: C/fit_lin.c used the integer abs, which set k = 1 for all
+  effective k < 2). Tests in `tests/test_emulator`.
+- SimulationCode: `GravityModel::nonlinear_boost_over_GR` (f(R) with n = 1 uses the fit) and
+  `NBodySimulation::nonlinear_over_linear_prediction`. The P_NL column of the P(k) outputs for f(R) (n = 1) is now
+  P_linear,GR x EuclidEmulator2 boost x the f(R) boost (was the f(R) linear P(k) times the LCDM EuclidEmulator2 boost);
+  a GR gravity model is set up for the linear GR growth unless `ic_use_gravity_model_GR` already gives one. GR and the
+  other models are unchanged. A 128^3, 256 Mpc/h COLA run (screening approximation, |fR0| = 1e-5, same IC as GR) has
+  P_f(R)/P_GR within ~2% of the fit for k < 1.5 h/Mpc at z = 0 (COLA at this resolution is a bit low).
+
+### HaloModel: one module for the halo models (HMcode-2016, HMcode-2020, shared building blocks)
+- HMcode-2020 moved from `Cosmology/Spectra/HMcode.h` to `FML/HaloModel/HMcode2020.h`
+  (`FML::COSMOLOGY::HALOMODEL::HMcode2020`); `Cosmology/Spectra/HMcode.h` forwards to it (`FML::COSMOLOGY::HMcode`)
+  for now. The solver links `HMcode2020.o` and `HaloModelTools.o` (Cosmology.mk, SimulationCode CMake).
+- New `HaloModel/HaloModelTools.h`: the building blocks the three halo models shared as copies (`LinearVariance` for
+  sigma(R), dln sigma/dln R and sigma_v; top-hat window; NFW profile and transform, now with a series for k r_v < 0.01
+  instead of 1; `ShethTormen` with the exact normalisation; Bullock concentrations; the Mead 2017 and HMcode-2016
+  fits; the HMcode transition). HMcode2020, HaloModel and AxionHMcode use them. HMcode-2020 total P(k) changes by
+  < 2e-14 (its one-halo term by 3e-8 at k = 1e-3 h/Mpc), AxionHMcode by < 6e-16.
+- `HaloModel` rewritten: input `HaloModelCosmology` (collapse model, Omega_m, f_nu, P_m(x, k), P_cb(x, k)) from
+  `cosmology_from_pofk_file`/`_spline` or `cosmology_from_background` (new `HaloModelBackground.h`); options in
+  `HaloModelOptions` with `Prescription::Standard` or `HMcode2016` (was the `hmcode` flag); results through accessors
+  (`pofk`, `pofk_onehalo`, `dndlogM`, `bias_of_M`, `concentration`, ...) and `state()`. Customisation functions get a
+  `const HaloModel &` (were member lambdas taking `HaloModel *`). HMcode-2016 no longer overwrites the user's
+  `hmcode_*` parameters; the global `_ACCURACY_BOOST` is the option `accuracy_boost`.
+- Massive neutrinos in HaloModel (f_nu was never set before): cold-matter variance for the peak heights, mass
+  function and concentrations, total matter for the two-halo term, sigma8 and sigma_v of the fits. HMcode-2016 as
+  CAMB `mead2016`; the Standard model multiplies the one-halo term by (1 - f_nu)^2.
+- HMcode-2016 additions as in CAMB: the Dolag correction (A (D(10)/D_LCDM(10))^1.5, so w0wa and other expansion
+  histories) and alpha clamped to [0.5, 2]. Against CAMB 2.0.5 `mead2016` with identical linear spectra
+  (new `test_hmcode2016`): 0.060% (LCDM), 0.030% (m_nu = 0.3 eV), 0.050% (w0wa, Omega_K = 0.02), z = 0-2,
+  k = 0.01-10 h/Mpc. LCDM P(k) unchanged (< 3e-11); n(M) changes by 2.4e-4 (Sheth-Tormen A = 0.216149 instead of
+  0.2162; P(k) is normalised and does not depend on A).
+- `nonlinear = hmcode2016` in the Einstein-Boltzmann solver: new `HaloModel/HMcode2016.h` with the interface of
+  HMcode2020 (table and one-redshift spectrum) on top of HaloModel. The solver now also links Halomodel.o,
+  SphericalCollapse*.o, Math.o and FileUtils.o (Cosmology.mk).
+- `HaloModel/PythonWrapper`: pybind11 instead of SWIG (`bindings.cpp`; `numpy.i`, `InterfaceFile.i` and `Wrapper.cpp`
+  removed); `HaloModelWrapper.py` keeps its interface.
+
 ### Symmetron: the generalised (N, M) potential
 - `gravity_model_symmetron_N` and `_M` (even integers, M > N >= 2; fiducial (2, 4), the original symmetron):
   V = H0^2 phi_*^2 / (xi^2 (M - N)) [-(phi/phi_*)^N / N + (phi/phi_*)^M / M], beta(phi) = beta (phi/phi_*)^(N-1)
@@ -37,7 +747,7 @@ The entries below are relative to upstream commit `f9f666a` (April 2026).
   linear theory, the exact discrete solution for the paper's nonlinear sine profile, a screened halo, the warm start);
   regression case `dilaton_exact_multigrid`. New parameter check `check::at_most`.
 
-### ReACT: optional official halo-model reaction engine
+### ReACT: optional official halo-model reaction engine (superseded: see the native reaction above)
 - `FML/ReACT` interfaces to pinned ACTio-ReACTio v2, including massive neutrinos, with explicit [z][k]
   spectrum inputs, unit/order checks, serialized backend calls and immutable reaction tables. The optional
   private-backend builder includes SUNDIALS 4.1.0; ordinary builds do not require either dependency.

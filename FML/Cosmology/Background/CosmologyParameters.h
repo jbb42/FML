@@ -55,6 +55,7 @@ namespace FML::COSMOLOGY {
         // --- Model (the model registry, Cosmology/Perturbations/Presets.h) ---------
         std::string model = "lcdm";
         std::map<std::string, double> model_params;
+        std::string model_file; // the table of a model given by one (horndeski_table: horndeski_frontend.py)
 
         // --- Primordial power spectrum -------------------------------------------
         double A_s = 2.1e-9;   // Amplitude at k_pivot
@@ -66,11 +67,13 @@ namespace FML::COSMOLOGY {
         // Tensor modes: P_t(k) = r A_s (k/k_pivot)^n_t (computed when r > 0; flat universes only). With
         // n_t_consistency the tilt follows the slow-roll consistency relation n_t = -r/8 (2 - r/8 - n_s) (as CLASS'
         // n_t = scc), otherwise n_t.
-        // Isocurvature modes cdi, bi, nid, niv (Isocurvature.h, as CLASS): amplitude ratio f (P_II = f^2 A_s
-        // (k/k_pivot)^{n - 1}; 0 = off), tilt n and correlation c with the adiabatic mode
-        std::array<double, 4> iso_f{{0.0, 0.0, 0.0, 0.0}};
-        std::array<double, 4> iso_n{{1.0, 1.0, 1.0, 1.0}};
-        std::array<double, 4> iso_c{{0.0, 0.0, 0.0, 0.0}};
+        // Isocurvature modes cdi, bi, nid, niv (Isocurvature.h, as CLASS) and axi (the density of an ultralight axion
+        // field, model axion; axionCAMB's axion isocurvature): amplitude ratio f (P_II = f^2 A_s (k/k_pivot)^{n - 1};
+        // 0 = off), tilt n and correlation c with the adiabatic mode
+        static constexpr int n_iso_modes = 5;
+        std::array<double, n_iso_modes> iso_f{{0.0, 0.0, 0.0, 0.0, 0.0}};
+        std::array<double, n_iso_modes> iso_n{{1.0, 1.0, 1.0, 1.0, 1.0}};
+        std::array<double, n_iso_modes> iso_c{{0.0, 0.0, 0.0, 0.0, 0.0}};
         double r = 0.0;
         double n_t = 0.0;
         bool n_t_consistency = true;

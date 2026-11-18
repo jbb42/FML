@@ -1,4 +1,6 @@
 #include <cerrno>
+#include <cmath>
+#include <new>
 #include <cstdio>
 #include <stdexcept>
 #include <chrono>
@@ -20,6 +22,10 @@
 
 static std::string processor_name{"NameIsOnlyKnownWithMPI"};
 
+// Did FML call MPI_Init (and so should call MPI_Finalize)? Not if the host program (or another library, e.g.
+// mpi4py) initialized MPI before FML
+[[maybe_unused]] static bool fml_initialized_mpi = false;
+
 namespace FML {
 
 #ifdef USE_MPI
@@ -27,7 +33,7 @@ namespace FML {
     // as it is used when FML is initialized
     MPI_Comm communicator = MPI_COMM_WORLD;
 #endif
-    
+
     int Barrier() {
 #ifdef USE_MPI
         return MPI_Barrier(FML::communicator);
@@ -36,6 +42,10 @@ namespace FML {
     }
 
     FML::UTILS::Timings global_timer;
+
+    // The decomposition of particles (a Slab whose ranges are xmin_domain, xmax_domain). Defined before fmlsetup
+    // below: it is dynamically initialized and init_fml (called by fmlsetup) sets it
+    Domain domain{};
 
     // Initialize FML, set the few globals we have and init MPI
     // and FFTW. If no auto setup you must init MPI and FFTW
@@ -71,6 +81,16 @@ namespace FML {
     //============================================
     void init_mpi([[maybe_unused]] int * argc, [[maybe_unused]] char *** argv) {
 #ifdef USE_MPI
+        // MPI is already running (started by the host program): use it as it is and leave finalizing to the host
+        int already_initialized = 0;
+        MPI_Initialized(&already_initialized);
+        if (already_initialized) {
+            int provided = MPI_THREAD_SINGLE;
+            MPI_Query_thread(&provided);
+            MPIThreadsOK = provided >= MPI_THREAD_FUNNELED;
+            return;
+        }
+        fml_initialized_mpi = true;
 #ifdef USE_OMP
         int provided;
         MPI_Init_thread(argc, argv, MPI_THREAD_FUNNELED, &provided);
@@ -130,7 +150,50 @@ namespace FML {
         // Set range for local domain
         xmin_domain = ThisTask / double(NTasks);
         xmax_domain = (ThisTask + 1) / double(NTasks);
+        domain = Domain::uniform_slab(NTasks);
     }
+
+    void set_domain(const Domain & new_domain) {
+        const std::string msg = "[set_domain] The domain is made for " + std::to_string(new_domain.ntasks()) +
+                                " tasks, but we have " + std::to_string(NTasks);
+        assert_mpi(new_domain.ntasks() == NTasks, msg.c_str());
+        domain = new_domain;
+        if (new_domain.is_slab()) {
+            assert_mpi(new_domain.valid_slab_partition(), "[set_domain] The slabs must partition [0,1] in rank order");
+            xmin_domain = new_domain.x_min(ThisTask);
+            xmax_domain = new_domain.x_max(ThisTask);
+        } else if (ThisTask == 0) {
+            std::cout << "NB: the domain is " << new_domain.type_name()
+                      << ": xmin_domain, xmax_domain are unchanged (code that uses them assumes the Slab domain); "
+                         "the grids for these particles are PencilGrids (FML::GRID::make_grid)\n";
+        }
+    }
+
+    Domain get_domain() {
+        if (domain.is_slab())
+            return slab_domain_from_local_range(xmin_domain, xmax_domain);
+        return domain;
+    }
+
+    Domain slab_domain_from_local_range(double xmin, double xmax) {
+        return Domain::slab(GatherFromTasks(&xmin), GatherFromTasks(&xmax));
+    }
+
+    Domain pencil_domain(int px, int py) {
+        if (px <= 0 or py <= 0) {
+            int dims[2] = {std::max(px, 0), std::max(py, 0)};
+#ifdef USE_MPI
+            MPI_Dims_create(NTasks, 2, dims);
+#else
+            dims[0] = dims[1] = 1;
+#endif
+            px = dims[0];
+            py = dims[1];
+        }
+        assert_mpi(px * py == NTasks, "[pencil_domain] Need px * py = NTasks");
+        return Domain::uniform_pencil(px, py);
+    }
+
 
     /// Show some info about FML
     void info() {
@@ -222,7 +285,11 @@ namespace FML {
         return;
 #endif
 #ifdef USE_MPI
-        MPI_Finalize();
+        // Only if FML started MPI (and nobody has finalized it yet)
+        int already_finalized = 0;
+        MPI_Finalized(&already_finalized);
+        if (fml_initialized_mpi and not already_finalized)
+            MPI_Finalize();
 #endif
     }
 
@@ -441,7 +508,11 @@ namespace FML {
 #endif
 #if defined(USE_FFTW) && defined(USE_MPI)
             CLEANUP_FFTW_MPI();
-            MPI_Finalize();
+            // Only if FML started MPI (and nobody has finalized it yet)
+            int already_finalized = 0;
+            MPI_Finalized(&already_finalized);
+            if (fml_initialized_mpi and not already_finalized)
+                MPI_Finalize();
 #endif
         }
 

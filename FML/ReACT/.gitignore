@@ -1,4 +1,0 @@
-.backend/
-.build/
-__pycache__/
-tests/test_react

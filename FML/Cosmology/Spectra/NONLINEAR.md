@@ -7,8 +7,12 @@ The Einstein--Boltzmann solver accepts:
 | `none` | Linear power (default) |
 | `halofit` | Existing Takahashi et al. (2012) Halofit |
 | `halofit_bird` | Takahashi Halofit plus the updated Bird neutrino correction used by CLASS |
+| `hmcode2016` | HMcode-2016 (as CAMB `mead2016`), including massive neutrinos and the baryonic-feedback parameters A, η_0 (`hmcode2016_A`, `hmcode2016_eta0`) |
 | `hmcode2020` | Gravity-only HMcode-2020, including massive neutrinos |
-| `react` | Optional official ReACT reaction times an HMcode-2020 matched GR pseudo spectrum |
+| `react` | The ReACT halo-model reaction (computed natively) times HMcode-2020 of the matched GR pseudo cosmology |
+| `ee2` | EuclidEmulator2 boost (flat `lcdm`, `w0wa`, within its parameter ranges) |
+| `jbd_boost` | `model = jbd`: Sletmoen & Winther (2024), the Brans–Dicke boost from the mapped GR universe with `jbd_boost_gr` (`ee2` by default) |
+| `axionhmcode` | Mixed cold/ultralight-axion halo model ([AxionHMcode](../../AxionHMcode/README.md), Vogt et al. 2022, Dome et al. 2024) for `model = axion` |
 
 For example, from `FML/Cosmology/EinsteinBoltzmannSolver`:
 
@@ -22,9 +26,11 @@ The third column remains **linear** CDM+baryon power. With `lensing=true`, the s
 multiplies the Weyl-potential power in the Limber part of the lensing-potential calculation. This is the
 existing matter-to-Weyl prescription; no additional modified-gravity lensing relation is implied.
 
-`react` requires an optional backend and has separate model and redshift limits. See
-[ReACT build, API and scientific conventions](../../ReACT/README.md). Above its reaction range
-(default z=2.5), the solver uses the matched pseudo baseline with R=1 as an explicit approximation.
+`react` supports flat `lcdm`, `fr` (n = 1), `w0wa` and normal-branch `dgp` (LCDM background), with massive
+neutrinos. Above `react_z_max` (default z=2.5) the solver uses the matched pseudo baseline with R=1 as an explicit
+approximation. For f(R) the third-order screening term is the correct one, 3 times ReACT's (`react_compat_gamma3 =
+true` reproduces ACTio-ReACTio). See [OPTIONS.md](../EinsteinBoltzmannSolver/OPTIONS.md) and the
+[HaloModel README](../../HaloModel/README.md).
 
 ## Bird extension
 
@@ -41,15 +47,21 @@ Neutrino hierarchies and scale-dependent linear growth come from the supplied li
 
 ## HMcode-2020 library interface
 
-`HMcode.h` provides a reusable implementation independent of the older
-`FML/HaloModel/Halomodel.h` module. That module's `hmcode` flag continues to select its existing
-2016 prescription. Use `FML::COSMOLOGY::HMcode` for the 2020 prescription.
+`FML/HaloModel/HMcode2020.h` provides `FML::COSMOLOGY::HALOMODEL::HMcode2020`. It lives in `FML/HaloModel` with the
+general halo model, which has HMcode-2016 as `Prescription::HMcode2016`, and both use the building blocks in
+`HaloModelTools.h` (see [HaloModel/README.md](../../HaloModel/README.md)). `Cosmology/Spectra/HMcode.h` (the class
+`FML::COSMOLOGY::HMcode`) still works but only forwards to it and will be removed.
+
+`FML/HaloModel/HMcode2016.h` (`HALOMODEL::HMcode2016`, `nonlinear = hmcode2016`) has the same interface (table
+constructor, `ratio`, one-redshift `spectrum`). It runs the general `HaloModel` with `Prescription::HMcode2016` at
+each of the `n_z` redshifts (about 0.1 s each, so a few seconds for the default table) and accepts the same
+backgrounds (lcdm, w0wa).
 
 ```cpp
-using namespace FML::COSMOLOGY;
-HMcode hm(bg, P_total, P_cb);
+using FML::COSMOLOGY::HALOMODEL::HMcode2020;
+HMcode2020 hm(bg, P_total, P_cb);
 double P_nonlinear = P_total(x, k) * hm.ratio(x, k);
-auto terms = HMcode::spectrum(bg, P_total, P_cb, x, {0.1, 1.0, 10.0});
+auto terms = HMcode2020::spectrum(bg, P_total, P_cb, x, {0.1, 1.0, 10.0});
 ```
 
 Both callbacks take `(ln(a), k[1/m])` and return power in m^3, for any positive k required by the
@@ -93,8 +105,9 @@ need more k coverage than the requested output range.
 From `FML/Cosmology/EinsteinBoltzmannSolver`:
 
 ```sh
-make -C tests test_hmcode2020 test_nonlinear test_parameterfile USE_OMP=false
+make -C tests test_hmcode2020 test_hmcode2016 test_nonlinear test_parameterfile USE_OMP=false
 ./tests/test_hmcode2020
+./tests/test_hmcode2016
 ./tests/test_nonlinear
 ./tests/test_parameterfile
 ```
@@ -106,7 +119,10 @@ z=0,1,2 and 31 logarithmic k values from 0.01 to 10 h/Mpc. The tolerance is 0.1%
 maximum difference is 0.075%. Doubling both mass and integration resolutions changes the LCDM
 z=0 result by 0.036%. Bird agrees with CLASS (classy 3.2.0) within 0.051% at the same redshifts
 and k points, using identical linear input. The test also checks the exact massless-neutrino limit.
-`test_nonlinear` exercises the solver's tables and output.
+`test_hmcode2016` checks HMcode-2016 (FML/HaloModel, built from the background with `HaloModelBackground.h`) against
+CAMB 2.0.5 `mead2016` for the same three cosmologies and one with baryonic feedback (A = 2.6, η_0 = 0.668,
+m_ν = 0.06 eV; 0.1% tolerance, at most 0.060%); fixtures from
+`python/generate_hmcode2016_reference.py`. `test_nonlinear` exercises the solver's tables and output.
 
 To regenerate the fixtures (requires CAMB, classy and NumPy):
 

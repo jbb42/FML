@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cassert>
+#include <string>
 #include <iostream>
 #include <vector>
 
@@ -15,9 +16,14 @@
 #endif
 
 #include <FML/FFTWGrid/FFTWGrid.h>
+#include <FML/FFTWGrid/GridInterface.h>
+#include <FML/FFTWGrid/CopyFourierModes.h>
 #include <FML/FFTWGrid/FourierResampling.h>
 #include <numeric>
 #include <climits>
+#include <map>
+#include <unordered_map>
+#include <algorithm>
 #include <FML/Global/Global.h>
 #include <FML/Interpolation/ParticleGridInterpolation.h>
 #include <FML/LPT/Reconstruction.h>        // For particles->redshiftspace
@@ -26,6 +32,7 @@
 // The classes that define how to bin and return the data
 #include <FML/ComputePowerSpectra/PolyspectrumBinning.h>
 #include <FML/ComputePowerSpectra/PolyspectrumWorkspace.h>
+#include <FML/ComputePowerSpectra/ShellOverlap.h>
 #include <FML/ComputePowerSpectra/PowerSpectrumBinning.h>
 
 namespace FML {
@@ -96,14 +103,15 @@ namespace FML {
         /// smaller grid (so its actually faster if used correctly).
         ///
         //================================================================================
-        template <int N, class T>
+        template <int N, class T, template <int> class Grid = FFTWGrid>
         void compute_power_spectrum(int Ngrid,
                                     T * part,
                                     size_t NumPart,
                                     size_t NumPartTotal,
                                     PowerSpectrumBinning<N> & pofk,
                                     std::string density_assignment_method,
-                                    bool interlacing);
+                                    bool interlacing,
+                                    const FML::Domain & domain = FML::domain);
 
         //================================================================================
         /// @brief Brute force (but aliasing free) computation of the power spectrum.
@@ -142,8 +150,8 @@ namespace FML {
         /// @param[out] pofk Binned power-spectrum
         ///
         //==========================================================================================
-        template <int N>
-        void bin_up_power_spectrum(const FFTWGrid<N> & fourier_grid, PowerSpectrumBinning<N> & pofk);
+        template <int N, template <int> class Grid = FFTWGrid>
+        void bin_up_power_spectrum(const Grid<N> & fourier_grid, PowerSpectrumBinning<N> & pofk);
 
         //==========================================================================================
         /// @brief Compute the power-spectrum of a fourier grid. The result has no scales. Get
@@ -160,8 +168,8 @@ namespace FML {
         /// @param[in] density_assignment_method The density assignment method we use to create the grid
         ///
         //==========================================================================================
-        template <int N>
-        void bin_up_deconvolved_power_spectrum(const FFTWGrid<N> & fourier_grid,
+        template <int N, template <int> class Grid = FFTWGrid>
+        void bin_up_deconvolved_power_spectrum(const Grid<N> & fourier_grid,
                                                PowerSpectrumBinning<N> & pofk,
                                                std::string density_assignment_method);
 
@@ -179,9 +187,9 @@ namespace FML {
         /// @param[out] pofk Binned cross power-spectrum
         ///
         //==========================================================================================
-        template <int N>
-        void bin_up_cross_power_spectrum(const FFTWGrid<N> & fourier_grid_1,
-                                         const FFTWGrid<N> & fourier_grid_2,
+        template <int N, template <int> class Grid = FFTWGrid>
+        void bin_up_cross_power_spectrum(const Grid<N> & fourier_grid_1,
+                                         const Grid<N> & fourier_grid_2,
                                          PowerSpectrumBinning<N> & pofk);
 
         //================================================================================
@@ -199,10 +207,31 @@ namespace FML {
         /// @param[in] line_of_sight_direction The line of sight direction, e.g. \f$ (0,0,1) \f$ for the z-axis.
         ///
         //================================================================================
-        template <int N>
-        void compute_power_spectrum_multipoles_fourier(const FFTWGrid<N> & fourier_grid,
+        template <int N, template <int> class Grid = FFTWGrid>
+        void compute_power_spectrum_multipoles_fourier(const Grid<N> & fourier_grid,
                                                        std::vector<PowerSpectrumBinning<N>> & Pell,
                                                        std::vector<double> line_of_sight_direction);
+
+        //================================================================================
+        /// @brief Cross power-spectrum multipoles of two Fourier grids (same size and layout) with a fixed line of
+        /// sight: \f$ P_\ell(k) = (2\ell+1) \left< {\rm Re}[\delta_1(\vec k) \delta_2^*(\vec k)] L_\ell(\mu) \right> \f$
+        /// with \f$ \mu = \hat k \cdot \hat n \f$, binned as compute_power_spectrum_multipoles_fourier (which is this with
+        /// \f$ \delta_1 = \delta_2 \f$; the two give the same result for the same grid). Only the even multipoles are
+        /// computed (the odd ones are zero; for two real fields that are statistically symmetric under
+        /// \f$ \vec k \to -\vec k \f$ the odd multipoles and the imaginary part vanish on average). The result has no
+        /// scales (pofk.scale(boxsize) as for the other estimators). No window deconvolution or shot noise is applied
+        /// here: do it on the grids before (deconvolve_window_function_fourier).
+        ///
+        /// @param[in] fourier_grid_1, fourier_grid_2 The grids in Fourier space
+        /// @param[out] Pell Pell[ell] is P_ell(k) for ell < Pell.size() (initialized with nbins, kmin, kmax)
+        /// @param[in] line_of_sight_direction The line of sight, e.g. (0,0,1)
+        ///
+        //================================================================================
+        template <int N, template <int> class Grid = FFTWGrid>
+        void compute_cross_power_spectrum_multipoles_fourier(const Grid<N> & fourier_grid_1,
+                                                             const Grid<N> & fourier_grid_2,
+                                                             std::vector<PowerSpectrumBinning<N>> & Pell,
+                                                             std::vector<double> line_of_sight_direction);
 
         //================================================================================
         /// @brief A simple power-spectrum estimator for multipoles in simulations.
@@ -225,7 +254,7 @@ namespace FML {
         /// @param[in] interlacing Use interlaced grids for alias reduction when computing the density field
         ///
         //================================================================================
-        template <int N, class T>
+        template <int N, class T, template <int> class Grid = FFTWGrid>
         void compute_power_spectrum_multipoles(int Ngrid,
                                                FML::PARTICLE::MPIParticles<T> & part,
                                                double velocity_to_displacement,
@@ -256,14 +285,15 @@ namespace FML {
         /// @param[in] interlacing Use interlaced grids when computing density field for alias reduction
         ///
         //================================================================================
-        template <int N, class T, int ORDER, bool COMPACT>
+        template <int N, class T, int ORDER, bool COMPACT, template <int> class Grid = FFTWGrid>
         void compute_polyspectrum(int Ngrid,
                                   T * part,
                                   size_t NumPart,
                                   size_t NumPartTotal,
                                   PolyspectrumBinning<N, ORDER, COMPACT> & polyofk,
                                   std::string density_assignment_method,
-                                  bool interlacing);
+                                  bool interlacing,
+                                    const FML::Domain & domain = FML::domain);
 
         //================================================================================
         /// @brief Computes the polyspectrum \f$ P(k_1,k_2,\ldots,k_{\rm ORDER}) = \left<\delta(k_1)\cdots\delta(k_{\rm
@@ -280,8 +310,8 @@ namespace FML {
         /// @param[out] polyofk The binned polyspectrum.
         ///
         //================================================================================
-        template <int N, int ORDER, bool COMPACT>
-        void compute_polyspectrum(const FFTWGrid<N> & fourier_grid, PolyspectrumBinning<N, ORDER, COMPACT> & polyofk);
+        template <int N, int ORDER, bool COMPACT, template <int> class Grid = FFTWGrid>
+        void compute_polyspectrum(const Grid<N> & fourier_grid, PolyspectrumBinning<N, ORDER, COMPACT> & polyofk);
 
         //================================================================================
         /// @brief Computes the monospectrum \f$ P(k_1,k_2) = \left<\delta(k_1)\delta(k_2)\right> \f$ from a fourier
@@ -296,8 +326,8 @@ namespace FML {
         /// kmax.
         ///
         //================================================================================
-        template <int N, bool COMPACT>
-        void compute_monospectrum(const FFTWGrid<N> & fourier_grid, MonospectrumBinning<N, COMPACT> & pofk);
+        template <int N, bool COMPACT, template <int> class Grid = FFTWGrid>
+        void compute_monospectrum(const Grid<N> & fourier_grid, MonospectrumBinning<N, COMPACT> & pofk);
 
         //================================================================================
         /// @brief Computes the monospectrum \f$ P(k_1,k_2) = \left<\delta(k_1)\delta(k_2)\right> \f$ from particles.
@@ -319,7 +349,7 @@ namespace FML {
         /// @param[in] interlacing Use interlaced grids when computing density field for alias reduction
         ///
         //================================================================================
-        template <int N, class T, bool COMPACT>
+        template <int N, class T, bool COMPACT, template <int> class Grid = FFTWGrid>
         void compute_monospectrum(int Ngrid,
                                   T * part,
                                   size_t NumPart,
@@ -348,7 +378,7 @@ namespace FML {
         /// @param[in] interlacing Use interlaced grids when computing density field for alias reduction
         ///
         //================================================================================
-        template <int N, class T, bool COMPACT>
+        template <int N, class T, bool COMPACT, template <int> class Grid = FFTWGrid>
         void compute_bispectrum(int Ngrid,
                                 T * part,
                                 size_t NumPart,
@@ -371,8 +401,8 @@ namespace FML {
         /// kmax.
         ///
         //================================================================================
-        template <int N, bool COMPACT>
-        void compute_bispectrum(const FFTWGrid<N> & fourier_grid, BispectrumBinning<N, COMPACT> & bofk);
+        template <int N, bool COMPACT, template <int> class Grid = FFTWGrid>
+        void compute_bispectrum(const Grid<N> & fourier_grid, BispectrumBinning<N, COMPACT> & bofk);
 
         //================================================================================
         /// @brief Computes the trispectrum \f$ T(k_1,k_2,k_3,k_4) =
@@ -388,8 +418,8 @@ namespace FML {
         /// kmax.
         ///
         //================================================================================
-        template <int N, bool COMPACT>
-        void compute_trispectrum(const FFTWGrid<N> & fourier_grid, TrispectrumBinning<N, COMPACT> & tofk);
+        template <int N, bool COMPACT, template <int> class Grid = FFTWGrid>
+        void compute_trispectrum(const Grid<N> & fourier_grid, TrispectrumBinning<N, COMPACT> & tofk);
 
         //================================================================================
         /// @brief Computes the truspectrum \f$ T(k_1,k_2,k_3,k_4) =
@@ -413,7 +443,7 @@ namespace FML {
         /// @param[in] interlacing Use interlaced grids when computing density field for alias reduction
         ///
         //================================================================================
-        template <int N, class T, bool COMPACT>
+        template <int N, class T, bool COMPACT, template <int> class Grid = FFTWGrid>
         void compute_trispectrum(int Ngrid,
                                  T * part,
                                  size_t NumPart,
@@ -432,144 +462,130 @@ namespace FML {
         // PowerSpectrumBinning using scale(kscale, pofkscale) with kscale = 1/Boxsize
         // and pofkscale = Boxsize^N once spectrum has been computed
         //==========================================================================================
-        template <int N>
-        void compute_power_spectrum_multipoles_fourier(const FFTWGrid<N> & fourier_grid,
+        namespace detail {
+            /// The multipoles of power(fourier_index) (|delta|^2 or Re[delta_1 delta_2^*]) on the modes of grid
+            template <int N, class Grid, class Power>
+            void power_spectrum_multipoles_fourier_impl(const Grid & fourier_grid,
+                                                        Power && power_of_mode,
+                                                        std::vector<PowerSpectrumBinning<N>> & Pell,
+                                                        std::vector<double> line_of_sight_direction,
+                                                        const char * name) {
+                const std::string where = std::string("[") + name + "] ";
+                assert_mpi(line_of_sight_direction.size() == N,
+                           (where + "Line of sight direction has wrong number of dimensions\n").c_str());
+                assert_mpi(Pell.size() > 0, (where + "Pell must have size > 0\n").c_str());
+                assert_mpi(fourier_grid.get_nmesh() > 0, (where + "grid must have Nmesh > 0\n").c_str());
+
+                // Norm of LOS vector
+                double rmag = 0.0;
+                for (int idim = 0; idim < N; idim++)
+                    rmag += line_of_sight_direction[idim] * line_of_sight_direction[idim];
+                rmag = std::sqrt(rmag);
+                assert_mpi(rmag > 0.0, (where + "Line of sight vector has zero length\n").c_str());
+
+                // Initialize binning just in case
+                for (size_t ell = 0; ell < Pell.size(); ell++)
+                    Pell[ell].reset();
+
+                // Bin up mu^k |delta|^2
+                FML::GRID::for_each_nonzero_fourier_mode(
+                    fourier_grid,
+                    [&](IndexIntType fourier_index, const std::array<double, N> & kvec, double kmag, double weight) {
+                        const double power = power_of_mode(fourier_index);
+
+                        // Compute mu = k_vec*r_vec
+                        double mu2 = 0.0;
+                        for (int idim = 0; idim < N; idim++)
+                            mu2 += kvec[idim] * line_of_sight_direction[idim];
+                        mu2 /= (kmag * rmag);
+                        mu2 = mu2 * mu2;
+
+                        // Add to bin |delta|^2, |delta|^2mu^2, |delta^2|mu^4, ...
+                        double mutotwoell = 1.0;
+                        for (size_t ell = 0; ell < Pell.size(); ell += 2) {
+                            Pell[ell].add_to_bin(kmag, power * mutotwoell, weight);
+                            mutotwoell *= mu2;
+                        }
+                    });
+
+                // Normalize (sums over the threads and the MPI tasks)
+                for (size_t ell = 0; ell < Pell.size(); ell++)
+                    Pell[ell].normalize();
+
+                // Binomial coefficient
+                auto binomial = [](int n, int k) -> double {
+                    double res = 1.0;
+                    for (int i = 0; i < k; i++) {
+                        res *= double(n - i) / double(k - i);
+                    }
+                    return res;
+                };
+
+                // P_ell(x) = Sum_{k=0}^{ell/2} summand_legendre_polynomial * x^(ell - 2k)
+                auto summand_legendre_polynomial = [&](int k, int ell) -> double {
+                    double sign = (k % 2) == 0 ? 1.0 : -1.0;
+                    return sign * binomial(ell, k) * binomial(2 * ell - 2 * k, ell) / std::pow(2.0, ell);
+                };
+
+                // Go from <mu^k |delta|^2> to (2ell+1) <L_ell(mu) |delta|^2>
+                std::vector<std::vector<double>> temp;
+                for (int ell = 0; ell < int(Pell.size()); ell++) {
+                    std::vector<double> sum(Pell[0].pofk.size(), 0.0);
+                    for (int k = 0; k <= ell / 2; k++) {
+                        std::vector<double> & mu_power = Pell[ell - 2 * k].pofk;
+                        for (size_t i = 0; i < sum.size(); i++)
+                            sum[i] += mu_power[i] * summand_legendre_polynomial(k, ell) * double(2 * ell + 1);
+                    }
+                    temp.push_back(sum);
+                }
+
+                // Copy over data. We now have P0,P1,... in Pell
+                for (size_t ell = 0; ell < Pell.size(); ell++) {
+                    Pell[ell].pofk = temp[ell];
+                }
+            }
+        } // namespace detail
+
+        template <int N, template <int> class Grid>
+        void compute_power_spectrum_multipoles_fourier(const Grid<N> & fourier_grid,
                                                        std::vector<PowerSpectrumBinning<N>> & Pell,
                                                        std::vector<double> line_of_sight_direction) {
-
-            assert_mpi(
-                line_of_sight_direction.size() == N,
-                "[compute_power_spectrum_multipoles_fourier] Line of sight direction has wrong number of dimensions\n");
-            assert_mpi(Pell.size() > 0, "[compute_power_spectrum_multipoles_fourier] Pell must have size > 0\n");
-            assert_mpi(fourier_grid.get_nmesh() > 0,
-                       "[compute_power_spectrum_multipoles_fourier] grid must have Nmesh > 0\n");
-
-            int Nmesh = fourier_grid.get_nmesh();
-            auto Local_x_start = fourier_grid.get_local_x_start();
-
-            // Norm of LOS vector
-            double rmag = 0.0;
-            for (int idim = 0; idim < N; idim++)
-                rmag += line_of_sight_direction[idim] * line_of_sight_direction[idim];
-            rmag = std::sqrt(rmag);
-            assert_mpi(rmag > 0.0,
-                       "[compute_power_spectrum_multipoles_fourier] Line of sight vector has zero length\n");
-
-            // Initialize binning just in case
-            for (size_t ell = 0; ell < Pell.size(); ell++)
-                Pell[ell].reset();
-
-            // Bin up mu^k |delta|^2
-#ifdef USE_OMP
-#pragma omp parallel for
-#endif
-            for (FML::IndexIntType irow = 0; irow < fourier_grid.get_local_nrows(); irow++) {
-                [[maybe_unused]] double kmag;
-                [[maybe_unused]] std::array<double, N> kvec;
-                for (auto && fourier_index : fourier_grid.get_fourier_range_of_rows(irow, irow + 1)) {
-                    if (Local_x_start == 0 and fourier_index == 0)
-                        continue; // DC mode( k=0)
-
-                    // Special treatment of k = 0 plane
-                    auto last_coord = fourier_index % (Nmesh / 2 + 1);
-                    double weight = FML::GRID::fourier_mode_multiplicity(last_coord, Nmesh);
-
-                    // Compute kvec, |kvec| and |delta|^2
-                    fourier_grid.get_fourier_wavevector_and_norm_by_index(fourier_index, kvec, kmag);
-                    auto delta = fourier_grid.get_fourier_from_index(fourier_index);
-                    double power = std::norm(delta);
-
-                    // Compute mu = k_vec*r_vec
-                    double mu2 = 0.0;
-                    for (int idim = 0; idim < N; idim++)
-                        mu2 += kvec[idim] * line_of_sight_direction[idim];
-                    mu2 /= (kmag * rmag);
-                    mu2 = mu2 * mu2;
-
-                    // Add to bin |delta|^2, |delta|^2mu^2, |delta^2|mu^4, ...
-                    double mutotwoell = 1.0;
-                    for (size_t ell = 0; ell < Pell.size(); ell += 2) {
-                        Pell[ell].add_to_bin(kmag, power * mutotwoell, weight);
-                        mutotwoell *= mu2;
-                    }
-                }
-            }
-
-            // Normalize (sums over the threads and the MPI tasks)
-            for (size_t ell = 0; ell < Pell.size(); ell++)
-                Pell[ell].normalize();
-
-            // Binomial coefficient
-            auto binomial = [](int n, int k) -> double {
-                double res = 1.0;
-                for (int i = 0; i < k; i++) {
-                    res *= double(n - i) / double(k - i);
-                }
-                return res;
-            };
-
-            // P_ell(x) = Sum_{k=0}^{ell/2} summand_legendre_polynomial * x^(ell - 2k)
-            auto summand_legendre_polynomial = [&](int k, int ell) -> double {
-                double sign = (k % 2) == 0 ? 1.0 : -1.0;
-                return sign * binomial(ell, k) * binomial(2 * ell - 2 * k, ell) / std::pow(2.0, ell);
-            };
-
-            // Go from <mu^k |delta|^2> to (2ell+1) <L_ell(mu) |delta|^2>
-            std::vector<std::vector<double>> temp;
-            for (int ell = 0; ell < int(Pell.size()); ell++) {
-                std::vector<double> sum(Pell[0].pofk.size(), 0.0);
-                for (int k = 0; k <= ell / 2; k++) {
-                    std::vector<double> & mu_power = Pell[ell - 2 * k].pofk;
-                    for (size_t i = 0; i < sum.size(); i++)
-                        sum[i] += mu_power[i] * summand_legendre_polynomial(k, ell) * double(2 * ell + 1);
-                }
-                temp.push_back(sum);
-            }
-
-            // Copy over data. We now have P0,P1,... in Pell
-            for (size_t ell = 0; ell < Pell.size(); ell++) {
-                Pell[ell].pofk = temp[ell];
-            }
+            detail::power_spectrum_multipoles_fourier_impl<N>(
+                fourier_grid,
+                [&](IndexIntType fourier_index) { return double(std::norm(fourier_grid.get_fourier_from_index(fourier_index))); },
+                Pell,
+                line_of_sight_direction,
+                "compute_power_spectrum_multipoles_fourier");
         }
 
-        /// @brief Loop over the local Fourier modes of a 3D grid (except k = 0) in the order of the Fourier index,
-        /// calling f(fourier_index, kvec, |k|, weight) with weight = 2 for the modes with 0 < k_z < k_ny (they also
-        /// represent -k) and 1 otherwise. kvec and |k| are computed exactly as in
-        /// FFTWGrid::get_fourier_wavevector_and_norm_by_index, but without decoding the index (no integer divisions per
-        /// mode). OpenMP over the rows (f must be thread safe)
+        template <int N, template <int> class Grid>
+        void compute_cross_power_spectrum_multipoles_fourier(const Grid<N> & fourier_grid_1,
+                                                             const Grid<N> & fourier_grid_2,
+                                                             std::vector<PowerSpectrumBinning<N>> & Pell,
+                                                             std::vector<double> line_of_sight_direction) {
+            assert_mpi(fourier_grid_1.get_nmesh() == fourier_grid_2.get_nmesh(),
+                       "[compute_cross_power_spectrum_multipoles_fourier] Grids must have the same gridsize\n");
+            // (the two grids have the same layout: the same index is the same mode)
+            detail::power_spectrum_multipoles_fourier_impl<N>(
+                fourier_grid_1,
+                [&](IndexIntType fourier_index) {
+                    const auto d1 = fourier_grid_1.get_fourier_from_index(fourier_index);
+                    const auto d2 = fourier_grid_2.get_fourier_from_index(fourier_index);
+                    return double(d1.real()) * double(d2.real()) + double(d1.imag()) * double(d2.imag());
+                },
+                Pell,
+                line_of_sight_direction,
+                "compute_cross_power_spectrum_multipoles_fourier");
+        }
+
+        /// @brief Loop over the local Fourier modes of a 3D grid (except k = 0): FML::GRID::for_each_nonzero_fourier_mode
         template <class F>
         void bin_up_fourier_modes_3d(const FFTWGrid<3> & grid, F && f) {
-            const int Nmesh = grid.get_nmesh();
-            const int Local_nx = grid.get_local_nx();
-            const int Local_x_start = grid.get_local_x_start();
-            const int nover2 = Nmesh / 2;
-            const int nover2plus1 = Nmesh / 2 + 1;
-            const double twopi = 2.0 * M_PI;
-            // OpenMP over the rows (islice, iy): a task can have fewer slices than threads
-#ifdef USE_OMP
-#pragma omp parallel for collapse(2)
-#endif
-            for (int islice = 0; islice < Local_nx; islice++) {
-                for (int iy = 0; iy < Nmesh; iy++) {
-                    std::array<double, 3> kvec;
-                    const int ix = islice + Local_x_start;
-                    kvec[0] = twopi * double(ix <= nover2 ? ix : ix - Nmesh);
-                    kvec[1] = twopi * double(iy <= nover2 ? iy : iy - Nmesh);
-                    size_t fourier_index = (size_t(islice) * Nmesh + iy) * nover2plus1;
-                    for (int iz = 0; iz < nover2plus1; iz++, fourier_index++) {
-                        if (Local_x_start == 0 and fourier_index == 0)
-                            continue; // DC mode (k=0)
-                        kvec[2] = twopi * double(iz <= nover2 ? iz : iz - Nmesh);
-                        const double kmag = std::sqrt(kvec[0] * kvec[0] + kvec[1] * kvec[1] + kvec[2] * kvec[2]);
-                        const double weight = FML::GRID::fourier_mode_multiplicity(iz, Nmesh);
-                        f(fourier_index, kvec, kmag, weight);
-                    }
-                }
-            }
+            FML::GRID::for_each_nonzero_fourier_mode(grid, std::forward<F>(f));
         }
 
-        template <int N>
-        void bin_up_deconvolved_power_spectrum(const FFTWGrid<N> & fourier_grid,
+        template <int N, template <int> class Grid>
+        void bin_up_deconvolved_power_spectrum(const Grid<N> & fourier_grid,
                                                PowerSpectrumBinning<N> & pofk,
                                                std::string density_assignment_method) {
 
@@ -578,120 +594,53 @@ namespace FML {
                        "[bin_up_deconvolved_power_spectrum] Binning has inconsistent parameters\n");
 
             const auto Nmesh = fourier_grid.get_nmesh();
-            const auto Local_x_start = fourier_grid.get_local_x_start();
             const FML::INTERPOLATION::WindowFunctionTable<N> window_function(density_assignment_method, Nmesh);
 
             // Initialize binning just in case
             pofk.reset();
 
             // Bin up P(k)
-            if constexpr (N == 3) {
-                // The same as the general loop below (same values and summation order, so identical results)
-                // without decoding every Fourier index into (ix, iy, iz)
-                bin_up_fourier_modes_3d(
-                    fourier_grid,
-                    [&](size_t fourier_index, const std::array<double, N> & kvec, double kmag, double weight) {
-                        auto delta = fourier_grid.get_fourier_from_index(fourier_index);
-                        auto delta_norm = std::norm(delta);
-                        auto window = window_function(kvec);
-                        delta_norm /= (window * window);
-                        pofk.add_to_bin(kmag, delta_norm, weight);
-                    });
-                pofk.normalize();
-                return;
-            }
-#ifdef USE_OMP
-#pragma omp parallel for
-#endif
-            for (FML::IndexIntType irow = 0; irow < fourier_grid.get_local_nrows(); irow++) {
-                [[maybe_unused]] double kmag;
-                [[maybe_unused]] std::array<double, N> kvec;
-                for (auto && fourier_index : fourier_grid.get_fourier_range_of_rows(irow, irow + 1)) {
-                    if (Local_x_start == 0 and fourier_index == 0)
-                        continue; // DC mode( k=0)
-
-                    // Special treatment of k = 0 plane (Safer way: fetch coord)
-                    // auto coord = fourier_grid.get_fourier_coord_from_index(fourier_index);
-                    // int last_coord = coord[N-1];
-                    auto last_coord = fourier_index % (Nmesh / 2 + 1);
-                    double weight = FML::GRID::fourier_mode_multiplicity(last_coord, Nmesh);
-
-                    fourier_grid.get_fourier_wavevector_and_norm_by_index(fourier_index, kvec, kmag);
-
+            FML::GRID::for_each_nonzero_fourier_mode(
+                fourier_grid,
+                [&](IndexIntType fourier_index, const std::array<double, N> & kvec, double kmag, double weight) {
                     auto delta = fourier_grid.get_fourier_from_index(fourier_index);
                     auto delta_norm = std::norm(delta);
                     auto window = window_function(kvec);
                     delta_norm /= (window * window);
-
-                    // Add norm to bin
                     pofk.add_to_bin(kmag, delta_norm, weight);
-                }
-            }
+                });
 
             // Normalize to get P(k) (this communicates over tasks)
             pofk.normalize();
         }
 
         // Bin up the power-spectrum of a given fourier grid
-        template <int N>
-        void bin_up_power_spectrum(const FFTWGrid<N> & fourier_grid, PowerSpectrumBinning<N> & pofk) {
+        template <int N, template <int> class Grid>
+        void bin_up_power_spectrum(const Grid<N> & fourier_grid, PowerSpectrumBinning<N> & pofk) {
 
             assert_mpi(fourier_grid.get_nmesh() > 0, "[bin_up_power_spectrum] grid must have Nmesh > 0\n");
             assert_mpi(pofk.n > 0 && pofk.kmax > pofk.kmin && pofk.kmin >= 0.0,
                        "[bin_up_power_spectrum] Binning has inconsistent parameters\n");
 
-            const auto Nmesh = fourier_grid.get_nmesh();
-            const auto Local_x_start = fourier_grid.get_local_x_start();
-
             // Initialize binning just in case
             pofk.reset();
 
             // Bin up P(k)
-            if constexpr (N == 3) {
-                // The same as the general loop below (identical results) without decoding the Fourier indices
-                bin_up_fourier_modes_3d(
-                    fourier_grid,
-                    [&](size_t fourier_index, const std::array<double, N> &, double kmag, double weight) {
-                        auto delta = fourier_grid.get_fourier_from_index(fourier_index);
-                        auto delta_norm = std::norm(delta);
-                        pofk.add_to_bin(kmag, delta_norm, weight);
-                    });
-                pofk.normalize();
-                return;
-            }
-#ifdef USE_OMP
-#pragma omp parallel for
-#endif
-            for (FML::IndexIntType irow = 0; irow < fourier_grid.get_local_nrows(); irow++) {
-                [[maybe_unused]] double kmag;
-                [[maybe_unused]] std::array<double, N> kvec;
-                for (auto && fourier_index : fourier_grid.get_fourier_range_of_rows(irow, irow + 1)) {
-                    if (Local_x_start == 0 and fourier_index == 0)
-                        continue; // DC mode( k=0)
-
-                    // Special treatment of k = 0 plane (Safer way: fetch coord)
-                    // auto coord = fourier_grid.get_fourier_coord_from_index(fourier_index);
-                    // int last_coord = coord[N-1];
-                    auto last_coord = fourier_index % (Nmesh / 2 + 1);
-                    double weight = FML::GRID::fourier_mode_multiplicity(last_coord, Nmesh);
-
+            FML::GRID::for_each_nonzero_fourier_mode(
+                fourier_grid,
+                [&](IndexIntType fourier_index, const std::array<double, N> &, double kmag, double weight) {
                     auto delta = fourier_grid.get_fourier_from_index(fourier_index);
-                    auto delta_norm = std::norm(delta);
-
-                    // Add norm to bin
-                    fourier_grid.get_fourier_wavevector_and_norm_by_index(fourier_index, kvec, kmag);
-                    pofk.add_to_bin(kmag, delta_norm, weight);
-                }
-            }
+                    pofk.add_to_bin(kmag, std::norm(delta), weight);
+                });
 
             // Normalize to get P(k) (this communicates over tasks)
             pofk.normalize();
         }
 
         // Bin up the cross power-spectrum of a given fourier grids
-        template <int N>
-        void bin_up_cross_power_spectrum(const FFTWGrid<N> & fourier_grid_1,
-                                         const FFTWGrid<N> & fourier_grid_2,
+        template <int N, template <int> class Grid>
+        void bin_up_cross_power_spectrum(const Grid<N> & fourier_grid_1,
+                                         const Grid<N> & fourier_grid_2,
                                          PowerSpectrumBinning<N> & pofk) {
 
             assert_mpi(fourier_grid_1.get_nmesh() > 0, "[bin_up_cross_power_spectrum] grid must have Nmesh > 0\n");
@@ -700,9 +649,6 @@ namespace FML {
             assert_mpi(pofk.n > 0 && pofk.kmax > pofk.kmin && pofk.kmin >= 0.0,
                        "[bin_up_cross_power_spectrum] Binning has inconsistent parameters\n");
 
-            const auto Nmesh = fourier_grid_1.get_nmesh();
-            const auto Local_x_start = fourier_grid_1.get_local_x_start();
-
             // Initialize binning just in case
             pofk.reset();
 
@@ -710,34 +656,17 @@ namespace FML {
             PowerSpectrumBinning<N> pofk_imag = pofk;
             pofk_imag.reset();
 
-            // Bin up P(k)
-#ifdef USE_OMP
-#pragma omp parallel for
-#endif
-            for (FML::IndexIntType irow = 0; irow < fourier_grid_1.get_local_nrows(); irow++) {
-                [[maybe_unused]] double kmag;
-                [[maybe_unused]] std::array<double, N> kvec;
-                for (auto && fourier_index : fourier_grid_1.get_fourier_range_of_rows(irow, irow + 1)) {
-                    if (Local_x_start == 0 and fourier_index == 0)
-                        continue; // DC mode( k=0)
-
-                    // Special treatment of k = 0 plane (Safer way: fetch coord)
-                    // auto coord = fourier_grid.get_fourier_coord_from_index(fourier_index);
-                    // int last_coord = coord[N-1];
-                    auto last_coord = fourier_index % (Nmesh / 2 + 1);
-                    double weight = FML::GRID::fourier_mode_multiplicity(last_coord, Nmesh);
-
+            // Bin up P(k) (the two grids have the same layout: the same index is the same mode)
+            FML::GRID::for_each_nonzero_fourier_mode(
+                fourier_grid_1,
+                [&](IndexIntType fourier_index, const std::array<double, N> &, double kmag, double weight) {
                     auto delta_1 = fourier_grid_1.get_fourier_from_index(fourier_index);
                     auto delta_2 = fourier_grid_2.get_fourier_from_index(fourier_index);
                     auto delta12_real = delta_1.real() * delta_2.real() + delta_1.imag() * delta_2.imag();
                     auto delta12_imag = -delta_1.real() * delta_2.imag() + delta_1.imag() * delta_2.real();
-
-                    // Add norm to bin
-                    fourier_grid_1.get_fourier_wavevector_and_norm_by_index(fourier_index, kvec, kmag);
                     pofk.add_to_bin(kmag, delta12_real, weight);
                     pofk_imag.add_to_bin(kmag, delta12_imag, weight);
-                }
-            }
+                });
 
             // Normalize to get P(k) (this communicates over tasks)
             pofk.normalize();
@@ -871,7 +800,7 @@ namespace FML {
         // We do this for all coordinate axes and return the mean P0,P1,... we get from this
         // velocity_to_displacement is factor to convert your velocity to a coordinate shift in [0,1)
         // e.g. c/(a H Box) with H ~ 100 h km/s/Mpc and Box boxsize in Mpc/h if velocities are peculiar
-        template <int N, class T>
+        template <int N, class T, template <int> class Grid>
         void compute_power_spectrum_multipoles(int Ngrid,
                                                FML::PARTICLE::MPIParticles<T> & part,
                                                double velocity_to_displacement,
@@ -903,8 +832,8 @@ namespace FML {
                 Pell_all[idim] = Pell;
             }
 
-            // Allocate density grid
-            FFTWGrid<N> density_k(Ngrid, nleft, nright);
+            // Allocate density grid (decomposed as the particles)
+            auto density_k = FML::GRID::make_grid<Grid<N>>(Ngrid, nleft, nright, part.get_domain());
             density_k.add_memory_label("FFTWGrid::compute_power_spectrum_multipoles::density_k");
 
             // Loop over all the N axes we are going to put the particles
@@ -988,22 +917,23 @@ namespace FML {
         // A simple power-spectrum estimator - nothing fancy
         // Deconvolving the window-function and subtracting shot-noise (1/NumPartTotal)
         //================================================================================
-        template <int N, class T>
+        template <int N, class T, template <int> class Grid>
         void compute_power_spectrum(int Ngrid,
                                     T * part,
                                     size_t NumPart,
                                     size_t NumPartTotal,
                                     PowerSpectrumBinning<N> & pofk,
                                     std::string density_assignment_method,
-                                    bool interlacing) {
+                                    bool interlacing,
+                                    const FML::Domain & domain) {
 
             // Set how many extra slices we need for the density assignment to go smoothly
             const auto nleftright = get_extra_slices(density_assignment_method);
             const int nleft = nleftright.first;
             const int nright = nleftright.second + (interlacing ? 1 : 0);
 
-            // Bin particles to grid
-            FFTWGrid<N> density_k(Ngrid, nleft, nright);
+            // Bin particles to grid (decomposed as the domain of the particles: the fiducial FML::domain unless given)
+            auto density_k = FML::GRID::make_grid<Grid<N>>(Ngrid, nleft, nright, domain);
             density_k.add_memory_label("FFTWGrid::compute_power_spectrum::density_k");
 
             if (interlacing) {
@@ -1131,7 +1061,7 @@ namespace FML {
         //    }
         //  }
 
-        template <int N, class T, bool COMPACT>
+        template <int N, class T, bool COMPACT, template <int> class Grid>
         void compute_monospectrum(int Ngrid,
                                   T * part,
                                   size_t NumPart,
@@ -1141,7 +1071,7 @@ namespace FML {
                                   bool interlacing) {
 
             // This will subtract shot-noise if pofk.subtract_shotnoise = true
-            compute_polyspectrum<N, T, 2>(Ngrid,
+            compute_polyspectrum<N, T, 2, COMPACT, Grid>(Ngrid,
                                           part,
                                           NumPart,
                                           NumPartTotal,
@@ -1150,7 +1080,7 @@ namespace FML {
                                           interlacing);
         }
 
-        template <int N, class T, bool COMPACT>
+        template <int N, class T, bool COMPACT, template <int> class Grid>
         void compute_bispectrum(int Ngrid,
                                 T * part,
                                 size_t NumPart,
@@ -1160,7 +1090,7 @@ namespace FML {
                                 bool interlacing) {
 
             // This will subtract shot-noise if bofk.subtract_shotnoise = true
-            compute_polyspectrum<N, T, 3>(Ngrid,
+            compute_polyspectrum<N, T, 3, COMPACT, Grid>(Ngrid,
                                           part,
                                           NumPart,
                                           NumPartTotal,
@@ -1169,7 +1099,7 @@ namespace FML {
                                           interlacing);
         }
 
-        template <int N, class T, bool COMPACT>
+        template <int N, class T, bool COMPACT, template <int> class Grid>
         void compute_trispectrum(int Ngrid,
                                  T * part,
                                  size_t NumPart,
@@ -1177,7 +1107,7 @@ namespace FML {
                                  TrispectrumBinning<N, COMPACT> & tofk,
                                  std::string density_assignment_method,
                                  bool interlacing) {
-            compute_polyspectrum<N, T, 4>(Ngrid,
+            compute_polyspectrum<N, T, 4, COMPACT, Grid>(Ngrid,
                                           part,
                                           NumPart,
                                           NumPartTotal,
@@ -1187,21 +1117,22 @@ namespace FML {
         }
 
         // Computes the polyspectrum P(k1,k2,k3,...)
-        template <int N, class T, int ORDER, bool COMPACT>
+        template <int N, class T, int ORDER, bool COMPACT, template <int> class Grid>
         void compute_polyspectrum(int Ngrid,
                                   T * part,
                                   size_t NumPart,
                                   size_t NumPartTotal,
                                   PolyspectrumBinning<N, ORDER, COMPACT> & polyofk,
                                   std::string density_assignment_method,
-                                  bool interlacing) {
+                                  bool interlacing,
+                                    const FML::Domain & domain) {
 
             // Set how many extra slices we need for the density assignment to go smoothly
             const auto nleftright = get_extra_slices(density_assignment_method);
             const int nleft = nleftright.first;
             const int nright = nleftright.second + 1;
 
-            FFTWGrid<N> density_k(Ngrid, nleft, nright);
+            auto density_k = FML::GRID::make_grid<Grid<N>>(Ngrid, nleft, nright, domain);
             density_k.add_memory_label("FFTWGrid::compute_polyspectrum::density_k");
 
             if (interlacing) {
@@ -1270,8 +1201,26 @@ namespace FML {
                 assert_mpi(padded <= INT_MAX, "[polyspectrum] Padded mesh exceeds int range");
                 return int(padded);
             }
-            template <int N, int ORDER>
-            bool polyspectrum_uses_mode(const FFTWGrid<N> & grid,
+            /// The work mesh (polyspectrum_work_mesh) made to fit the decomposition of a grid (FFTWGrid: as it is)
+            template <int ORDER, class Grid>
+            int polyspectrum_work_mesh_like(const Grid & like, int nmesh, const std::vector<double> & khigh, bool dealias) {
+                int mesh = polyspectrum_work_mesh<ORDER>(nmesh, khigh, dealias);
+                if constexpr (not FML::GRID::is_fftwgrid_v<Grid>) {
+                    while (mesh != nmesh and not fits_grid_like(like, mesh))
+                        mesh += 2;
+                }
+                return mesh;
+            }
+            /// The bytes of a shell grid of a mesh decomposed as like (0: FFTWGrid computes them itself)
+            template <class Grid>
+            size_t shell_bytes_like(const Grid & like, int mesh) {
+                if constexpr (FML::GRID::is_fftwgrid_v<Grid>)
+                    return 0;
+                else
+                    return make_grid_like(like, mesh, 0, 0).allocated_storage_bytes();
+            }
+            template <int N, int ORDER, class Grid>
+            bool polyspectrum_uses_mode(const Grid & grid,
                                         const std::array<double, N> & wave,
                                         double k2,
                                         double low2,
@@ -1285,6 +1234,88 @@ namespace FML {
                             return false;
                 return true;
             }
+
+            /// The weight of a Fourier mode in the shell of a bin: 0 or 1 from where the cell centre is
+            /// (polyspectrum_uses_mode), or with shell_overlap_weights the fraction of the cell inside the shell
+            /// (ShellOverlap.h). The ball overlaps are remembered per cell (up to the symmetries of the grid) and edge,
+            /// as every shell is built more than once. Not thread safe
+            template <int N, int ORDER>
+            class PolyspectrumShellWeights {
+              public:
+                template <class Binning>
+                explicit PolyspectrumShellWeights(const Binning & bins)
+                    : overlap(bins.shell_overlap_weights), dealias(bins.dealias), klow(bins.klow), khigh(bins.khigh) {
+                    static_assert(N >= 1, "[PolyspectrumShellWeights] N >= 1");
+                    assert_mpi(not overlap or N <= 3,
+                               "[polyspectrum] shell_overlap_weights is only implemented for N = 1, 2 and 3");
+                    // The distinct edges in units of the fundamental mode (k = 2 pi n for a box of size 1)
+                    for (const auto & edges : {klow, khigh})
+                        for (double k : edges)
+                            if (edge_id.find(k) == edge_id.end()) {
+                                edge_id[k] = int(radius.size());
+                                radius.push_back(k / (2.0 * M_PI));
+                            }
+                }
+
+                template <class Grid>
+                double operator()(const Grid & grid, const std::array<double, N> & wave, double k2, int bin) {
+                    if (not overlap)
+                        return polyspectrum_uses_mode<N, ORDER>(
+                                   grid, wave, k2, klow[bin] * klow[bin], khigh[bin] * khigh[bin], dealias) ?
+                                   1.0 :
+                                   0.0;
+                    if (!(k2 > 0))
+                        return 0.0;
+                    if (dealias && ORDER > 2 && grid.get_nmesh() % 2 == 0)
+                        for (auto k : wave)
+                            if (std::abs(k) >= M_PI * grid.get_nmesh())
+                                return 0.0;
+                    if constexpr (N <= 3) {
+                        // The cell up to reflections and permutations: sorted |n|
+                        std::array<double, N> n;
+                        for (int d = 0; d < N; d++)
+                            n[d] = std::round(std::fabs(wave[d]) / (2.0 * M_PI));
+                        std::sort(n.begin(), n.end());
+                        const double d = std::sqrt(k2) / (2.0 * M_PI), half_diagonal = 0.5 * std::sqrt(double(N));
+                        const double r_low = radius[edge_id[klow[bin]]], r_high = radius[edge_id[khigh[bin]]];
+                        if (d + half_diagonal <= r_low or d - half_diagonal >= r_high)
+                            return 0.0;
+                        if (d - half_diagonal >= r_low and d + half_diagonal <= r_high)
+                            return 1.0;
+                        return std::clamp(ball(n, edge_id[khigh[bin]], d) - ball(n, edge_id[klow[bin]], d), 0.0, 1.0);
+                    }
+                    return 0.0;
+                }
+
+              private:
+                bool overlap, dealias;
+                std::vector<double> klow, khigh, radius;
+                std::map<double, int> edge_id;
+                std::unordered_map<uint64_t, double> memory;
+
+                /// The volume of the unit cell centred at n (>= 0, sorted) inside the ball of edge e
+                double ball(const std::array<double, N> & n, int e, double d) {
+                    const double r = radius[e], half_diagonal = 0.5 * std::sqrt(double(N));
+                    if (d + half_diagonal <= r)
+                        return 1.0;
+                    if (d - half_diagonal >= r)
+                        return 0.0;
+                    uint64_t key = uint64_t(e);
+                    for (int i = 0; i < N; i++)
+                        key = key * (uint64_t(1) << 20) + uint64_t(n[i]);
+                    auto found = memory.find(key);
+                    if (found != memory.end())
+                        return found->second;
+                    std::array<double, N> lo, hi;
+                    for (int i = 0; i < N; i++) {
+                        lo[i] = n[i] - 0.5;
+                        hi[i] = n[i] + 0.5;
+                    }
+                    const double v = FML::CORRELATIONFUNCTIONS::SHELLOVERLAP::box_ball_overlap<N>(lo, hi, r);
+                    memory[key] = v;
+                    return v;
+                }
+            };
         } // namespace detail
 
         //================================================================================
@@ -1303,8 +1334,14 @@ namespace FML {
         /// @param[out] polyofk The binning (we compute and store the volumes of each bin, N123, in this binning).
         ///
         //================================================================================
-        template <int N, int ORDER, bool COMPACT>
-        void compute_polyspectrum_bincount(int Nmesh, PolyspectrumBinning<N, ORDER, COMPACT> & bins) {
+        namespace detail {
+            /// The bin counts with shell grids decomposed as like (FFTWGrid: the slabs)
+            template <int N, int ORDER, bool COMPACT, template <int> class Grid>
+            void compute_polyspectrum_bincount_like(const Grid<N> & like,
+                                                    int Nmesh,
+                                                    PolyspectrumBinning<N, ORDER, COMPACT> & bins) {
+            using FML::GRID::make_grid_like;
+            constexpr bool is_fftwgrid = std::is_same_v<Grid<N>, FFTWGrid<N>>;
             assert_mpi(Nmesh > 0 && bins.n > 0 && bins.klow.size() == size_t(bins.n) &&
                            bins.khigh.size() == size_t(bins.n),
                        "[compute_polyspectrum_bincount] Mesh and shell binning must be initialized");
@@ -1317,45 +1354,42 @@ namespace FML {
             for (const auto & cfg : configs)
                 for (auto bin : cfg)
                     requested_kmax = std::max(requested_kmax, bins.khigh[bin]);
-            const int mesh = detail::polyspectrum_work_mesh<ORDER>(Nmesh, {requested_kmax}, bins.dealias);
+            const int mesh = detail::polyspectrum_work_mesh_like<ORDER>(like, Nmesh, {requested_kmax}, bins.dealias);
+            detail::PolyspectrumShellWeights<N, ORDER> shell_weight(bins);
             auto build = [&](int bin) {
-                FFTWGrid<N> field(Nmesh);
+                auto field = make_grid_like(like, Nmesh, 0, 0);
                 field.set_grid_status_real(false);
                 for (auto index : field.get_fourier_range()) {
                     std::array<double, N> wave;
                     double k2;
                     field.get_fourier_wavevector_and_norm2_by_index(index, wave, k2);
-                    field.set_fourier_from_index(
-                        index,
-                        detail::polyspectrum_uses_mode<N, ORDER>(field,
-                                                                 wave,
-                                                                 k2,
-                                                                 bins.klow[bin] * bins.klow[bin],
-                                                                 bins.khigh[bin] * bins.khigh[bin],
-                                                                 bins.dealias) ?
-                            1.0 :
-                            0.0);
+                    field.set_fourier_from_index(index, shell_weight(field, wave, k2, bin));
                 }
                 if (mesh != Nmesh) {
                     auto & memory = bins.statistics.memory;
                     memory.padding_source_bytes =
                         std::max(memory.padding_source_bytes, field.allocated_storage_bytes());
-                    FFTWGrid<N> padded(mesh);
-                    FML::GRID::FourierResamplingPlan<N> plan(field, padded);
-                    plan.apply(field, padded);
-                    memory.remapping_bytes = std::max(memory.remapping_bytes, plan.workspace_storage_bytes());
-                    field = std::move(padded);
+                    if constexpr (is_fftwgrid) {
+                        FFTWGrid<N> padded(mesh);
+                        FML::GRID::FourierResamplingPlan<N> plan(field, padded);
+                        plan.apply(field, padded);
+                        memory.remapping_bytes = std::max(memory.remapping_bytes, plan.workspace_storage_bytes());
+                        field = std::move(padded);
+                    } else {
+                        field = FML::GRID::resize_fourier_grid(field, mesh);
+                    }
                 }
                 field.fftw_c2r();
                 return field;
             };
-            detail::ShellCache<N, ORDER> cache(bins.n,
-                                               mesh,
-                                               configs,
-                                               bins.options,
-                                               bins.statistics,
-                                               bins.statistics.geometry_shell_builds,
-                                               build);
+            detail::ShellCache<N, ORDER, Grid<N>> cache(bins.n,
+                                                        mesh,
+                                                        configs,
+                                                        bins.options,
+                                                        bins.statistics,
+                                                        bins.statistics.geometry_shell_builds,
+                                                        build,
+                                                        detail::shell_bytes_like(like, mesh));
             std::fill(bins.N123.begin(), bins.N123.end(), 0.0);
             const double measure = std::pow(2 * M_PI, N);
             const double norm = std::pow(1.0 / mesh / (2 * M_PI), N);
@@ -1366,32 +1400,41 @@ namespace FML {
                 bins.statistics.geometry_reduction_batches,
                 [&](auto cfg, double sum) {
                     double value = sum * norm;
-                    if (value * measure < 0.5)
+                    // Counts are integers (round-off below 0.5); with overlap weights any positive count
+                    if (value * measure < (bins.shell_overlap_weights ? 1e-6 : 0.5))
                         value = 0;
                     detail::store_permutations<N, ORDER>(bins, bins.N123, cfg, value);
                 });
             bins.mark_bincount_computed(Nmesh);
             detail::finish_memory_report(bins);
         }
+        } // namespace detail
 
-        template <int N, bool COMPACT>
-        void compute_monospectrum(const FFTWGrid<N> & fourier_grid, PolyspectrumBinning<N, 2, COMPACT> & pofk) {
+        template <int N, int ORDER, bool COMPACT>
+        void compute_polyspectrum_bincount(int Nmesh, PolyspectrumBinning<N, ORDER, COMPACT> & bins) {
+            detail::compute_polyspectrum_bincount_like<N, ORDER>(FFTWGrid<N>(), Nmesh, bins);
+        }
+
+        template <int N, bool COMPACT, template <int> class Grid>
+        void compute_monospectrum(const Grid<N> & fourier_grid, PolyspectrumBinning<N, 2, COMPACT> & pofk) {
             compute_polyspectrum<N, 2>(fourier_grid, pofk);
         }
 
-        template <int N, bool COMPACT>
-        void compute_bispectrum(const FFTWGrid<N> & fourier_grid, PolyspectrumBinning<N, 3, COMPACT> & bofk) {
+        template <int N, bool COMPACT, template <int> class Grid>
+        void compute_bispectrum(const Grid<N> & fourier_grid, PolyspectrumBinning<N, 3, COMPACT> & bofk) {
             compute_polyspectrum<N, 3>(fourier_grid, bofk);
         }
 
-        template <int N, bool COMPACT>
-        void compute_trispectrum(const FFTWGrid<N> & fourier_grid, PolyspectrumBinning<N, 4, COMPACT> & tofk) {
+        template <int N, bool COMPACT, template <int> class Grid>
+        void compute_trispectrum(const Grid<N> & fourier_grid, PolyspectrumBinning<N, 4, COMPACT> & tofk) {
             compute_polyspectrum<N, 4>(fourier_grid, tofk);
         }
 
-        template <int N, int ORDER, bool COMPACT>
-        void compute_polyspectrum(const FFTWGrid<N> & input, PolyspectrumBinning<N, ORDER, COMPACT> & bins) {
+        template <int N, int ORDER, bool COMPACT, template <int> class Grid>
+        void compute_polyspectrum(const Grid<N> & input, PolyspectrumBinning<N, ORDER, COMPACT> & bins) {
             static_assert(ORDER > 1);
+            using FML::GRID::make_grid_like;
+            constexpr bool is_fftwgrid = std::is_same_v<Grid<N>, FFTWGrid<N>>;
             const int Nmesh = input.get_nmesh();
             assert_mpi(Nmesh > 0 && bins.n > 0 && bins.klow.size() == size_t(bins.n) &&
                            bins.khigh.size() == size_t(bins.n) && bins.pofk.size() == size_t(bins.n) &&
@@ -1401,32 +1444,31 @@ namespace FML {
             assert_mpi(bins.valid_storage(), "[compute_polyspectrum] Invalid result storage");
             bins.statistics = {};
             if (!bins.has_bincount(Nmesh))
-                compute_polyspectrum_bincount<N, ORDER>(Nmesh, bins);
+                detail::compute_polyspectrum_bincount_like<N, ORDER>(input, Nmesh, bins);
             const auto configs = bins.configurations();
             bins.statistics.memory.configuration_bytes = configs.capacity() * sizeof(configs[0]);
             double requested_kmax = 0;
             for (const auto & cfg : configs)
                 for (auto bin : cfg)
                     requested_kmax = std::max(requested_kmax, bins.khigh[bin]);
-            const int mesh = detail::polyspectrum_work_mesh<ORDER>(Nmesh, {requested_kmax}, bins.dealias);
+            const int mesh = detail::polyspectrum_work_mesh_like<ORDER>(input, Nmesh, {requested_kmax}, bins.dealias);
             // Auxiliary P(k) and mean k cover every shell, including unrequested configurations.
             // Their statistics require no shell meshes and one array reduction.
             const size_t metadata_count = 3 * size_t(bins.n);
             assert_mpi(metadata_count <= size_t(INT_MAX), "[polyspectrum] Too many shell statistics for MPI");
             std::vector<double> metadata(metadata_count, 0.0);
+            detail::PolyspectrumShellWeights<N, ORDER> shell_weight(bins);
             for (auto index : input.get_fourier_range()) {
                 std::array<double, N> wave;
                 double k2;
                 input.get_fourier_wavevector_and_norm2_by_index(index, wave, k2);
                 for (int bin = 0; bin < bins.n; bin++) {
-                    if (!detail::polyspectrum_uses_mode<N, ORDER>(input,
-                                                                  wave,
-                                                                  k2,
-                                                                  bins.klow[bin] * bins.klow[bin],
-                                                                  bins.khigh[bin] * bins.khigh[bin],
-                                                                  bins.dealias))
+                    const double fraction = shell_weight(input, wave, k2, bin);
+                    if (fraction == 0.0)
                         continue;
-                    const double weight = FML::GRID::fourier_mode_multiplicity(int(index % (Nmesh / 2 + 1)), Nmesh);
+                    const double weight = fraction * FML::GRID::fourier_mode_multiplicity(
+                        is_fftwgrid ? int(index % (Nmesh / 2 + 1)) : input.get_fourier_integer_wavevector_from_index(index)[N - 1],
+                        Nmesh);
                     metadata[3 * bin] += weight * std::sqrt(k2);
                     metadata[3 * bin + 1] += weight * std::norm(input.get_fourier_from_index(index));
                     metadata[3 * bin + 2] += weight;
@@ -1442,35 +1484,42 @@ namespace FML {
                 bins.pofk[bin] = count ? metadata[3 * bin + 1] / count : 0.0;
             }
             auto build = [&](int bin) {
-                FFTWGrid<N> field(Nmesh);
+                auto field = make_grid_like(input, Nmesh, 0, 0);
                 field.set_grid_status_real(false);
                 for (auto index : input.get_fourier_range()) {
                     std::array<double, N> wave;
                     double k2;
                     input.get_fourier_wavevector_and_norm2_by_index(index, wave, k2);
-                    const bool use = detail::polyspectrum_uses_mode<N, ORDER>(input,
-                                                                              wave,
-                                                                              k2,
-                                                                              bins.klow[bin] * bins.klow[bin],
-                                                                              bins.khigh[bin] * bins.khigh[bin],
-                                                                              bins.dealias);
-                    field.set_fourier_from_index(index, use ? input.get_fourier_from_index(index) : 0.0);
+                    const double fraction = shell_weight(input, wave, k2, bin);
+                    field.set_fourier_from_index(index,
+                                                 fraction != 0.0 ? fraction * input.get_fourier_from_index(index) :
+                                                                   0.0);
                 }
                 if (mesh != Nmesh) {
                     auto & memory = bins.statistics.memory;
                     memory.padding_source_bytes =
                         std::max(memory.padding_source_bytes, field.allocated_storage_bytes());
-                    FFTWGrid<N> padded(mesh);
-                    FML::GRID::FourierResamplingPlan<N> plan(field, padded);
-                    plan.apply(field, padded);
-                    memory.remapping_bytes = std::max(memory.remapping_bytes, plan.workspace_storage_bytes());
-                    field = std::move(padded);
+                    if constexpr (is_fftwgrid) {
+                        FFTWGrid<N> padded(mesh);
+                        FML::GRID::FourierResamplingPlan<N> plan(field, padded);
+                        plan.apply(field, padded);
+                        memory.remapping_bytes = std::max(memory.remapping_bytes, plan.workspace_storage_bytes());
+                        field = std::move(padded);
+                    } else {
+                        field = FML::GRID::resize_fourier_grid(field, mesh);
+                    }
                 }
                 field.fftw_c2r();
                 return field;
             };
-            detail::ShellCache<N, ORDER>
-                cache(bins.n, mesh, configs, bins.options, bins.statistics, bins.statistics.field_shell_builds, build);
+            detail::ShellCache<N, ORDER, Grid<N>> cache(bins.n,
+                                                     mesh,
+                                                     configs,
+                                                     bins.options,
+                                                     bins.statistics,
+                                                     bins.statistics.field_shell_builds,
+                                                     build,
+                                                     detail::shell_bytes_like(input, mesh));
             std::fill(bins.P123.begin(), bins.P123.end(), 0.0);
             const double norm = std::pow(1.0 / mesh / (2 * M_PI), N);
             detail::integrate_configurations<N, ORDER>(

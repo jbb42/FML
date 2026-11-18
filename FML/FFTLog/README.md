@@ -33,6 +33,15 @@ API, supplying coefficients bypasses the no-ringing adjustment even if
 `noring=true`; the caller must pass the `kcrc` used to compute those coefficients.
 External coefficients do not replace the internal cache.
 
+The logarithmic Fourier/Bessel transform is due to Talman (1978),
+[doi:10.1016/0021-9991(78)90107-9](https://doi.org/10.1016/0021-9991(78)90107-9),
+and FFTLog's cosmological formulation and reference implementation are described
+by Hamilton (2000), [arXiv:astro-ph/9905191](https://arxiv.org/abs/astro-ph/9905191).
+FML's implementation is adapted from [Slosar's FFTLog](https://github.com/slosar/FFTLog),
+which acknowledges [Copter](https://github.com/jwgcarlson/Copter); the spherical transform
+also follows the documented mcfit-style conventions noted below. These are upstream-code
+acknowledgements, not claims that every FML transform is a verbatim port.
+
 `prepare(N)` allocates buffers and builds plans before the first transform;
 `clear()` releases them and resets statistics. Workspaces are movable, not copyable.
 `size()` reports the prepared length, `buffer_bytes()` reports only the two aligned
@@ -51,3 +60,11 @@ cannot be shared by simultaneous calls.
 Input grids retain the logarithmic-spacing requirement. Transforms reject lengths
 below two or above `INT_MAX`, mismatched vectors, and invalid endpoint spans.
 Interior logarithmic spacing is the caller's responsibility.
+
+## SphericalBesselTransform.h
+
+`SphericalBesselTransform` does the spherical Bessel transforms g_l(y) = C int dx x^2 j_l(xy) f(x) of functions on one
+fixed logarithmic grid for l = 0, ..., L-1 with precomputed kernels (C = 4 pi, or 1/(2 pi^2) with `fourier`). It is
+the mcfit-style FFTLog of velocileptors (zero padding to 2^(ceil(log2 N) + 1) points, tilt max(0, 3/2 - l), a low-ringing
+output grid), reproduced to rounding, and is used by `PerturbationTheory/LPTRedshiftSpace.h`. Header only (FFTW); one
+object per thread.

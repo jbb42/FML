@@ -11,6 +11,9 @@ template <int NDIM, class T>
 void NBodySimulation<NDIM, T>::read_parameters(const ParameterMap & param, const Parameters & _params) {
     parameters = std::make_shared<ParameterMap>(param);
     params = _params;
+    // Coupled quintessence with CDM and baryon particles: the PM force is gravity alone and the CDM gets the fifth
+    // force of the CDM in a second kick (kick_cdm_fifth_force)
+    grav->set_cdm_coupling_in_force(not cdm_fifth_force_separate());
     // Library callers can construct the simulation without Main.cpp's model checks.
     if (params.force.short_range.enabled) {
         params.validate();
@@ -37,7 +40,7 @@ void NBodySimulation<NDIM, T>::read_parameters(const ParameterMap & param, const
     // The finite difference kernels (which vanish at the Nyquist frequency) suppress this. Together with the
     // half-cell lattice offset (ic_lattice_offset = fiducial) the four-point kernel gives the most accurate
     // nonlinear P(k) for force grids up to 3 times the particle grid and the two-point kernel for finer grids
-    // (see the README)
+    // (see EVOLUTION.md)
     std::string gradient_kernel = params.force.gradient_kernel;
     if ((gradient_kernel == "fiducial" or gradient_kernel == "") and params.force.nmesh > params.particle.Npart_1D) {
         gradient_kernel = params.force.nmesh <= 3 * params.particle.Npart_1D ? "discrete_4pt" : "discrete_2pt";
@@ -129,6 +132,19 @@ void NBodySimulation<NDIM, T>::init() {
         grav_ic->init();
     } else {
         grav_ic = grav;
+    }
+
+    // A modified gravity model with a fitted nonlinear boost over GR (f(R)) also needs the linear growth of GR for the
+    // nonlinear predictions in the P(k) outputs (nonlinear_over_linear_prediction)
+    if (grav->nonlinear_boost_over_GR(0.0)) {
+        if (params.ic.use_gravity_model_GR) {
+            grav_gr = grav_ic;
+        } else {
+            grav_gr = std::make_shared<GravityModelGR<NDIM>>(cosmo);
+            grav_gr->set_transfers(grav->get_transfers());
+            grav_gr->read_parameters(*parameters);
+            grav_gr->init();
+        }
     }
 
     setup_initial_power_spectrum();
@@ -281,7 +297,7 @@ void NBodySimulation<NDIM, T>::generate_initial_conditions() {
 
 /// The initial CDM+baryon density field delta(k, zini) (and the linear field for the hybrid bias spectra)
 template <int NDIM, class T>
-FML::GRID::FFTWGrid<NDIM> NBodySimulation<NDIM, T>::make_initial_density_field() {
+SimulationGrid<NDIM> NBodySimulation<NDIM, T>::make_initial_density_field() {
     const auto & ic = params.ic;
     const double boxsize = params.simulation.boxsize;
 
@@ -290,7 +306,7 @@ FML::GRID::FFTWGrid<NDIM> NBodySimulation<NDIM, T>::make_initial_density_field()
         // If read_phases then delta_ini is computed from particles
         nextra = FML::INTERPOLATION::get_extra_slices(ic.reconstruct_assigment_method);
     }
-    FFTWGrid<NDIM> delta_ini_fourier(ic.nmesh, nextra.first, nextra.second);
+    auto delta_ini_fourier = make_simulation_grid<NDIM>(ic.nmesh, nextra.first, nextra.second);
     delta_ini_fourier.add_memory_label("delta_ini_fourier(k)");
     delta_ini_fourier.set_grid_status_real(false);
 
@@ -322,11 +338,25 @@ FML::GRID::FFTWGrid<NDIM> NBodySimulation<NDIM, T>::make_initial_density_field()
     // Keep the linear field for the hybrid bias spectra (the Lagrangian operators are formed at the lattice points so
     // we only need the modes the lattice resolves)
     if (params.hybridbias.enabled) {
-        hybridbias_linear_field_fourier = FFTWGrid<NDIM>(params.particle.Npart_1D);
+        hybridbias_linear_field_fourier = make_simulation_grid<NDIM>(params.particle.Npart_1D);
         hybridbias_linear_field_fourier.add_memory_label("delta_L(k,zini) for hybrid bias");
         FML::NUFFT::copy_fourier_modes<NDIM>(delta_ini_fourier,
                                              hybridbias_linear_field_fourier,
                                              [](const std::array<int, NDIM> &) { return 1.0; });
+        // For SnapshotAnalyzer: delta_L(zini) at the lattice points (the particle with id (ix N + iy) N + iz starts
+        // at lattice point (ix, iy, iz))
+        if (params.hybridbias.output_linear_field) {
+            auto real_field = hybridbias_linear_field_fourier;
+            real_field.fftw_c2r();
+            const auto filename = params.output.path("hybridbias_linear_field_" + params.simulation.name + ".dat");
+            FML::CORRELATIONFUNCTIONS::HYBRIDBIAS::write_linear_field<NDIM>(filename,
+                                                                           real_field,
+                                                                           params.simulation.boxsize,
+                                                                           params.ic.initial_redshift);
+            if (FML::ThisTask == 0)
+                std::cout << "Wrote the linear field delta_L(z = " << params.ic.initial_redshift << ") on the "
+                          << params.particle.Npart_1D << "^" << NDIM << " lattice to " << filename << "\n";
+        }
     }
     return delta_ini_fourier;
 }
@@ -604,7 +634,7 @@ void NBodySimulation<NDIM, T>::apply_lattice_offset() {
 /// CDM.
 /// NB: interleaved (offset) lattices give a large spurious growth of the baryon-CDM difference on scales k > k_Ny/8
 /// of the particles (and a few % too little CDM+baryon power at k ~ k_Ny/2) in this PM code; with the same lattice the
-/// difference follows linear theory on all scales and the CDM+baryon P(k) is that of one species (see the README)
+/// difference follows linear theory on all scales and the CDM+baryon P(k) is that of one species (see SPECIES.md)
 template <int NDIM, class T>
 void NBodySimulation<NDIM, T>::generate_initial_conditions_two_species(const FFTWGrid<NDIM> & delta_cb_fourier) {
     const auto & ic = params.ic;
@@ -617,8 +647,8 @@ void NBodySimulation<NDIM, T>::generate_initial_conditions_two_species(const FFT
     const auto splines = SIMCODE::two_species_ic_splines<NDIM>(*transfers,
                                                                *grav_ic,
                                                                ic.initial_redshift,
-                                                               cdm.weight_cb,
-                                                               baryon.weight_cb);
+                                                               cb_weight(cdm, aini),
+                                                               cb_weight(baryon, aini));
 
     const double fac = aini * aini * cosmo->HoverH0_of_a(aini);
     const std::vector<double> velocity_norms = ic_velocity_norms(fac);

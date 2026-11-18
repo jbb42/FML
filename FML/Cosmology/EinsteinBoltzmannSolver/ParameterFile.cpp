@@ -95,8 +95,10 @@ namespace FML::COSMOLOGY {
         const std::map<std::string, PowerSpectrumOptions::Nonlinear> & nonlinear_methods() {
             using N = PowerSpectrumOptions::Nonlinear;
             static const std::map<std::string, N> m = {{"none", N::None}, {"halofit", N::Halofit},
-                                                       {"halofit_bird", N::HalofitBird}, {"hmcode2020", N::HMcode2020},
-                                                       {"react", N::ReACT}};
+                                                       {"halofit_bird", N::HalofitBird}, {"hmcode2016", N::HMcode2016},
+                                                       {"hmcode2020", N::HMcode2020},
+                                                       {"react", N::ReACT}, {"axionhmcode", N::AxionHMcode},
+                                                       {"ee2", N::EE2}, {"jbd_boost", N::JBDBoost}};
             return m;
         }
         const std::map<std::string, Perturbations::SourceTerm> & source_terms() {
@@ -254,6 +256,12 @@ namespace FML::COSMOLOGY {
                  model_description(),
                  [](S & s, const std::string & v) { s.cosmo.model = trim(v); },
                  [](const S & s) { return s.cosmo.model; }},
+                {"Cosmology",
+                 "model_file",
+                 "the table of a model given by one (horndeski_table: the _gravity.txt of "
+                 "SimulationCode/scripts/horndeski_frontend.py); empty otherwise",
+                 [](S & s, const std::string & v) { s.cosmo.model_file = trim(v); },
+                 [](const S & s) { return s.cosmo.model_file; }},
                 D("Cosmology", "A_s", "primordial curvature power at k_pivot", REF(double, cosmo.A_s)),
                 D("Cosmology", "n_s", "scalar spectral index", REF(double, cosmo.n_s)),
                 D("Cosmology",
@@ -297,6 +305,16 @@ namespace FML::COSMOLOGY {
                   "c_ad_niv",
                   "neutrino velocity isocurvature: correlation with the adiabatic mode (CLASS convention)",
                   REF(double, cosmo.iso_c[3])),
+                D("Cosmology",
+                  "f_axi",
+                  "ultralight-axion density isocurvature (model axion; or ax_log10_Hinf): amplitude ratio, P = f^2 A_s "
+                  "(k/k_pivot)^(n - 1) (0 = off)",
+                  REF(double, cosmo.iso_f[4])),
+                D("Cosmology", "n_axi", "axion isocurvature: spectral index", REF(double, cosmo.iso_n[4])),
+                D("Cosmology",
+                  "c_ad_axi",
+                  "axion isocurvature: correlation with the adiabatic mode (CLASS convention)",
+                  REF(double, cosmo.iso_c[4])),
                 D("Cosmology",
                   "r",
                   "tensor-to-scalar ratio at k_pivot (> 0: tensor modes, flat universe only)",
@@ -544,13 +562,37 @@ namespace FML::COSMOLOGY {
                  [](const S & s) { return enum_name(source_terms(), s.ps.source_term); }},
                 {"PowerSpectrum",
                  "nonlinear",
-                 "nonlinear matter power for lensing and P(k): none, halofit, halofit_bird, hmcode2020, react",
+                 "nonlinear matter power for lensing and P(k): none, halofit, halofit_bird, hmcode2016, hmcode2020, react, "
+                 "axionhmcode (mixed axion dark matter, model axion), ee2 (EuclidEmulator2), jbd_boost (model jbd: "
+                 "Sletmoen & Winther 2024, the BD boost from GR with jbd_boost_gr)",
                  [](S & s, const std::string & v) { s.ps.nonlinear = enum_value(nonlinear_methods(), v); },
                  [](const S & s) { return enum_name(nonlinear_methods(), s.ps.nonlinear); }},
+                D("PowerSpectrum", "hmcode2016_A", "HMcode-2016 baryonic feedback: halo concentration amplitude (3.13: dark matter only; CAMB HMCode_A_baryon)", REF(double, ps.hmcode2016_A)),
+                D("PowerSpectrum", "hmcode2016_eta0", "HMcode-2016 baryonic feedback: eta0 of the halo bloating eta = eta0 - 0.3 sigma8(z) (0.603: dark matter only; CAMB HMCode_eta_baryon)", REF(double, ps.hmcode2016_eta0)),
+                B("PowerSpectrum", "hmcode2016_eta0_from_A", "HMcode-2016: eta0 = 0.98 - 0.12 A (the one-parameter feedback model of KiDS-1000) instead of hmcode2016_eta0", REF(bool, ps.hmcode2016_eta0_from_A)),
                 I("PowerSpectrum", "react_n_z", "ReACT redshift samples (>=4)", REF(int, ps.react_n_z)),
                 I("PowerSpectrum", "react_n_k", "ReACT logarithmic k samples, 1e-5 to 100 h/Mpc (>=32)", REF(int, ps.react_n_k)),
                 I("PowerSpectrum", "react_mass_loop", "ReACT spherical-collapse mass samples (10..1000)", REF(int, ps.react_mass_loop)),
-                D("PowerSpectrum", "react_z_max", "maximum ReACT redshift (<=2.5); above it use the matched pseudo baseline with R=1", REF(double, ps.react_z_max)),
+                D("PowerSpectrum", "react_z_max", "maximum ReACT redshift (<=10; validated against ReACT to z = 2); above it use the matched pseudo baseline with R=1", REF(double, ps.react_z_max)),
+                B("PowerSpectrum", "react_compat_gamma3", "ReACT: use ACTio-ReACTio's f(R) third-order screening term (1/3 of the correct one) to reproduce ReACT", REF(bool, ps.react_compat_gamma3)),
+                {"PowerSpectrum",
+                 "jbd_boost_gr",
+                 "jbd_boost: the GR nonlinear method of the mapped GR universe: ee2 (as the paper), hmcode2020, "
+                 "hmcode2016, halofit, halofit_bird",
+                 [](S & s, const std::string & v) { s.ps.jbd_boost_gr = enum_value(nonlinear_methods(), v); },
+                 [](const S & s) { return enum_name(nonlinear_methods(), s.ps.jbd_boost_gr); }},
+                I("PowerSpectrum", "ee2_n_z", "EuclidEmulator2: redshifts of its table in [0, 10] (uniform in ln a)", REF(int, ps.ee2_n_z)),
+                B("PowerSpectrum",
+                  "axionhmcode_basic",
+                  "AxionHMcode: the basic model of Vogt et al. 2022 instead of the Dome et al. 2024 calibration",
+                  REF(bool, ps.axionhmcode_basic)),
+                B("PowerSpectrum",
+                  "axionhmcode_allow_extrapolation",
+                  "AxionHMcode: allow the Dome calibration outside z = 1-8, axion fraction of the matter 0.01-0.3 and m = "
+                  "10^-24.5 eV (false: an error there; the table starts at z = 0)",
+                  REF(bool, ps.axionhmcode_allow_extrapolation)),
+                D("PowerSpectrum", "axionhmcode_z_max", "AxionHMcode: largest redshift of the P_NL/P_L table (above: linear)", REF(double, ps.axionhmcode_z_max)),
+                I("PowerSpectrum", "axionhmcode_n_z", "AxionHMcode: redshifts of the table (uniform in ln a; ~1.5 s each)", REF(int, ps.axionhmcode_n_z)),
                 // --- Output ------------------------------------------------------------
                 Str("Output", "output_dir", "directory for all output files", REF(std::string, output_dir)),
                 B("Output", "write_background", "background.txt", REF(bool, write_background)),

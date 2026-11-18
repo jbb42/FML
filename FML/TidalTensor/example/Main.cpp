@@ -3,7 +3,7 @@
 #include <FML/FFTWGrid/FFTWGrid.h>
 #include <FML/TidalTensor/Hessian.h>
 
-#include <FML/FileUtils/FileUtils.h>
+#include <FML/ExampleData/ExampleData.h>
 #include <FML/Interpolation/ParticleGridInterpolation.h>
 #include <FML/MPIParticles/MPIParticles.h>
 
@@ -22,29 +22,26 @@ struct Particle {
     double * get_pos() { return x; }
 };
 
-void ReadParticlesFromFile(FML::PARTICLE::MPIParticles<Particle> & part) {
-    // Read ascii file with [x,y,z]
+void MakeParticles(FML::PARTICLE::MPIParticles<Particle> & part) {
+    // A toy clustered box (halos and voids); every task makes the same particles. To use your own, read them e.g.
+    // with FML::FILEUTILS::loadtxt (ascii [x, y, z])
     const double box = 1024.0;
-    const std::string filename = "../../../TestData/particles_B1024.txt";
-    auto data = FML::FILEUTILS::loadtxt(filename);
+    const auto data = FML::EXAMPLEDATA::clustered_box(100000, box);
 
-    // Create particles and scale to [0,1)
+    // Create particles with positions scaled to [0,1)
     std::vector<Particle> p;
-    for (auto & row : data) {
-        for (auto & x : row)
-            x /= box;
-        p.push_back(Particle(row.data()));
+    for (auto & q : data.particles) {
+        double x[NDIM];
+        for (int idim = 0; idim < NDIM; idim++)
+            x[idim] = q.pos[idim] / box;
+        p.push_back(Particle(x));
     }
 
     // Create MPI particles by letting each task keep only the particles that falls in its domain
-    const bool all_tasks_have_the_same_particles = true;
+    // Replicated: every task has the same particles (each keeps those it owns); Distributed: different ones
+    const auto input = FML::PARTICLE::Input::Replicated;
     const int nalloc_per_task = p.size() / FML::NTasks * 2;
-    part.create(p.data(),
-                p.size(),
-                nalloc_per_task,
-                FML::xmin_domain,
-                FML::xmax_domain,
-                all_tasks_have_the_same_particles);
+    part.create(p.data(), p.size(), nalloc_per_task, input);
 }
 
 int main() {
@@ -53,9 +50,9 @@ int main() {
     // Set up a grid
     FFTWGrid<NDIM> f_real(Nmesh, 0, 1);
 
-    // Read particle from file
+    // Make the particles
     FML::PARTICLE::MPIParticles<Particle> part;
-    ReadParticlesFromFile(part);
+    MakeParticles(part);
 
     std::string density_assignment_method = "CIC";
     FML::INTERPOLATION::particles_to_grid<NDIM, Particle>(part.get_particles_ptr(),

@@ -9,7 +9,7 @@
 #include "TransferInput.h"
 #include <FML/Cosmology/Growth/LPTGrowthFactors.h>
 #include <FML/Cosmology/Perturbations/QuasiStaticGravity.h>
-#include <FML/FFTWGrid/FFTWGrid.h>
+#include "SimulationGrid.h"
 #include <FML/Global/Global.h>
 #include <FML/LPT/DisplacementFields.h>
 #include <FML/MPIParticles/MPIParticles.h>
@@ -38,7 +38,7 @@ template <int NDIM>
 class GravityModel {
   public:
     template <int N>
-    using FFTWGrid = FML::GRID::FFTWGrid<N>;
+    using FFTWGrid = SimulationGrid<N>;
     using ODESolver = FML::SOLVERS::ODESOLVER::ODESolver;
     using Spline = FML::INTERPOLATION::SPLINE::Spline;
     using Spline2D = FML::INTERPOLATION::SPLINE::Spline2D;
@@ -170,6 +170,63 @@ class GravityModel {
         if (geff_scale_dependent())
             scaledependent_growth = true;
         compute_growth_factors();
+        // Interacting dark energy: the mass perturbation of the CDM+baryons, m1 D1, enters the source of D1 and
+        // depends on the growth rate (iterated; converged to 1e-6 after a few iterations)
+        if (cosmo->is_ide())
+            for (int iter = 0; iter < 5; iter++) {
+                compute_ide_mass_growth();
+                compute_growth_factors();
+            }
+    }
+
+    //========================================================================
+    // Interacting dark energy (Cosmology::is_ide): the particles move as usual (the exchange is along the dark-matter
+    // velocity), so D1 is the growth of the displacement (of the number density delta_n), but their masses change
+    // with their volume (Simulation::update_ide_masses): to linear order the CDM+baryon mass perturbation is
+    // delta = delta_n + mu with
+    //   mu' = -q (mu + delta_n + delta_n'/3),   q = xi rho_DE / rho_cb      (' = d/dlna)
+    // (the energy exchange perturbed with the local expansion of the dark matter, Valiviita et al. 2008,
+    // arXiv:0804.0232: the Einstein-Boltzmann solver's delta_c' with delta_DE = 0 on sub-horizon scales). With mu = m1(a) D1:
+    //   m1' = -q (1 + m1 + f/3) - m1 f,   f = dlnD1/dlna,   m1 = 0 early
+    // and the source of D1 is (1 + m1) delta_n (source_factor_1LPT; CDM and baryon particles: the CDM+baryon fluid
+    // here too). 0 for the other models
+    //========================================================================
+    double ide_mass_growth(double a) const {
+        if (not ide_m1_spline)
+            return 0.0;
+        const double x = std::log(a);
+        return x <= ide_m1_xmin ? 0.0 : ide_m1_spline(std::min(x, ide_m1_xmax));
+    }
+    void compute_ide_mass_growth() {
+        // Up to ahigh or (in the future) till the CDM+baryon density has dropped to a tenth of today's (xi < 0: the
+        // dark matter can run out, the equation becomes stiff); m1 is held constant after
+        const double xmin = std::log(alow);
+        double xmax = std::log(ahigh);
+        for (double x = 0.0; x < xmax; x += 0.01)
+            if (cosmo->cb_mass_factor(std::exp(x)) * std::exp(-3.0 * x) < 0.1) {
+                xmax = std::max(x, 0.01);
+                break;
+            }
+        const double xi = cosmo->ide_xi();
+        const double OmegaCB = cosmo->get_OmegaCDM() + cosmo->get_Omegab();
+        auto q_of_x = [&](double x) {
+            const double a = std::exp(x);
+            return xi * cosmo->ide_rho_de_a3(a) / (OmegaCB * cosmo->cb_mass_factor(a));
+        };
+        FML::SOLVERS::ODESOLVER::ODEFunction deriv = [&](double x, const double * y, double * dydx) {
+            const double f = get_f_1LPT(std::exp(x));
+            dydx[0] = -q_of_x(x) * (1.0 + y[0] + f / 3.0) - y[0] * f;
+            return GSL_SUCCESS;
+        };
+        const int n = 1000;
+        DVector x(n);
+        for (int i = 0; i < n; i++)
+            x[i] = xmin + (xmax - xmin) * i / double(n - 1);
+        FML::SOLVERS::ODESOLVER::ODESolver ode(1e-3, 1e-10, 1e-10);
+        ode.solve(deriv, x, DVector{0.0});
+        ide_m1_xmin = xmin;
+        ide_m1_xmax = xmax;
+        ide_m1_spline = Spline(x, ode.get_data_by_component(0), "IDE mass growth m1(log a)");
     }
 
     //========================================================================
@@ -194,6 +251,11 @@ class GravityModel {
     }
     /// The model's own lines of info() (what follows from its parameters, which info() prints; task 0 only)
     virtual void info_model() const {}
+
+    /// A fitted nonlinear P(k) boost over GR, P_model(k, z) / P_GR(k, z) with the same initial conditions (k in h/Mpc),
+    /// for the nonlinear predictions in the P(k) outputs (Simulation::nonlinear_over_linear_prediction). Empty (the
+    /// default) if the model has none
+    virtual std::function<double(double)> nonlinear_boost_over_GR([[maybe_unused]] double redshift) const { return {}; }
 
     //========================================================================
     // The transfer functions (shared with the simulation: see TransferInput.h)
@@ -232,9 +294,53 @@ class GravityModel {
     // Effective gravitational constant and equivalent factors appearing
     // in the LPT growth equations
     //========================================================================
-    /// G_eff/G = mu(a, k) of the theory (koverH0 = c k / H0), 1 without one (GR)
+    /// G_eff/G = mu(a, k) of the theory (koverH0 = c k / H0), 1 without one (GR). The G_eff/G of the CDM+baryon
+    /// particles (one fluid): with a coupling of the CDM alone (GravityModel_CoupledQuintessence) the momentum-weighted
+    /// force of the fluid
     virtual double GeffOverG(double a, double koverH0 = 0) const {
         return quasi_static ? quasi_static->mu(std::log(a), koverH0) : 1.0;
+    }
+    /// G_eff/G of gravity alone: GeffOverG without a coupling of the CDM alone (the force on the baryons with CDM and
+    /// baryons as separate particles)
+    virtual double GeffOverG_gravity(double a, double koverH0 = 0) const { return GeffOverG(a, koverH0); }
+    /// A force of the CDM on the CDM alone, relative to gravity (coupled quintessence: 2 beta^2; none by default).
+    /// With CDM and baryons as separate particles the CDM gets it from the CDM density in a second kick
+    /// (NBodySimulation::kick_cdm_fifth_force); with one set of particles it is in GeffOverG
+    virtual bool has_cdm_fifth_force() const { return false; }
+    virtual double cdm_fifth_force_coupling([[maybe_unused]] double a) const { return 0.0; }
+
+    //========================================================================
+    // Velocity friction: dv/dlna = -Gamma(a) v + force in the code velocity v = a^3 E dx/da. In the growth equations
+    // (all LPT orders, COLA, the IC velocities) and the kick and drift factors (TimeStepping.h). By default that of
+    // the cosmology (Cosmology::velocity_friction: dark scattering); a gravity model with an extra velocity term
+    // overrides them (coupled quintessence)
+    //========================================================================
+    virtual bool has_velocity_friction() const { return cosmo->has_velocity_friction(); }
+    /// The friction of the CDM+baryon particles as one fluid
+    virtual double velocity_friction(double a) const { return cosmo->velocity_friction(a); }
+    /// The friction of the CDM alone (CDM and baryons as separate particles; the baryons have none)
+    virtual double velocity_friction_cdm(double a) const { return cosmo->velocity_friction_cdm(a); }
+    /// The friction integral I(a) = int_amin^a Gamma dlna (a spline in log a on [amin, amax], constant outside), for
+    /// the time stepping. An empty function without friction. cdm_only: of velocity_friction_cdm, else of
+    /// velocity_friction
+    std::function<double(double)>
+    velocity_friction_integral(double amin = 1e-6, double amax = 100.0, bool cdm_only = false) const {
+        if (not has_velocity_friction())
+            return {};
+        const int n = 4000;
+        std::vector<double> x(n);
+        for (int i = 0; i < n; i++)
+            x[i] = std::log(amin) + std::log(amax / amin) * i / double(n - 1);
+        FML::SOLVERS::ODESOLVER::ODEFunction deriv = [&](double xx, [[maybe_unused]] const double * y, double * dydx) {
+            dydx[0] = cdm_only ? velocity_friction_cdm(std::exp(xx)) : velocity_friction(std::exp(xx));
+            return GSL_SUCCESS;
+        };
+        FML::SOLVERS::ODESOLVER::ODESolver ode;
+        std::vector<double> ini{0.0};
+        ode.solve(deriv, x, ini);
+        auto spline = std::make_shared<const FML::INTERPOLATION::SPLINE::Spline>(
+            x, ode.get_data_by_component(0), "Friction integral I(log(a))");
+        return [spline](double a) { return (*spline)(std::log(a)); };
     }
     /// Whether G_eff/G depends on k (then the force and the growth do too)
     virtual bool geff_scale_dependent() const { return quasi_static and quasi_static->scale_dependent(); }
@@ -290,14 +396,15 @@ class GravityModel {
         SIMCODE::kick_short_range(particles,
                                   settings,
                                   boxsize,
-                                  1.5 * cosmo->get_OmegaM() * a,
+                                  1.5 * cosmo->get_OmegaM() * cosmo->clustering_mass_factor(a) * a,
                                   dt,
                                   checked_short_range_interaction(a));
     }
 
     // Factors in the LPT equations
     virtual double source_factor_1LPT([[maybe_unused]] double a, [[maybe_unused]] double koverH0 = 0) const {
-        double factor = 1.0;
+        // Interacting dark energy: the mass perturbation of the CDM+baryons (ide_mass_growth; 0 otherwise)
+        double factor = 1.0 + ide_mass_growth(a);
         const double fnu = f_nu_of_a(a);
         if (fnu > 0.0 and koverH0 > 0.0) {
             if (transfers) {
@@ -305,7 +412,7 @@ class GravityModel {
                     transfers->density_over_k_mpc2(SIMCODE::TransferSpecies::MassiveNeutrino, koverH0 * H0_hmpc, a);
                 const double T_cb =
                     transfers->density_over_k_mpc2(SIMCODE::TransferSpecies::CDMBaryon, koverH0 * H0_hmpc, a);
-                factor = (1.0 - fnu) + fnu * T_nu / T_cb;
+                factor *= (1.0 - fnu) + fnu * T_nu / T_cb;
             }
         }
         return factor;
@@ -327,18 +434,28 @@ class GravityModel {
         return 1.0 - f_nu_of_a(a);
     };
 
+    /// The PM force with or without the fifth force of the CDM (has_cdm_fifth_force): without it (gravity alone) with
+    /// CDM and baryons as separate particles, where the CDM gets it from the CDM density in a second kick
+    /// (NBodySimulation::kick_cdm_fifth_force). G_eff/G of the PM force
+    bool cdm_coupling_in_force{true};
+    void set_cdm_coupling_in_force(bool in_force) { cdm_coupling_in_force = in_force; }
+    double GeffOverG_force(double a, double koverH0 = 0) const {
+        return cdm_coupling_in_force ? GeffOverG(a, koverH0) : GeffOverG_gravity(a, koverH0);
+    }
+
     /// The force D Phi from the density field (Fourier space): D^2 Phi = 1.5 OmegaM a G_eff/G(a, k) delta, with
-    /// G_eff/G(a, k) multiplying delta(k) if it depends on k. Screened models override it
+    /// G_eff/G(a, k) multiplying delta(k) if it depends on k (and OmegaM times the clustering_mass_factor(a) of a
+    /// varying CDM mass). Screened models override it
     virtual void compute_force(double a,
                                double H0Box,
                                FFTWGrid<NDIM> & density_fourier,
                                std::string density_assignment_method_used,
                                std::array<FFTWGrid<NDIM>, NDIM> & force_real,
                                const FML::NBODY::ForceOptions & options = {}) const {
-        const double norm_poisson_equation = 1.5 * this->cosmo->get_OmegaM() * a;
+        const double norm_poisson_equation = 1.5 * this->cosmo->get_OmegaM() * this->cosmo->clustering_mass_factor(a) * a;
         if (not geff_scale_dependent()) {
             compute_force_from_total_density(density_fourier,
-                                             norm_poisson_equation * GeffOverG(a),
+                                             norm_poisson_equation * GeffOverG_force(a),
                                              density_assignment_method_used,
                                              force_real,
                                              options);
@@ -347,13 +464,30 @@ class GravityModel {
         // G_eff/G(a, k) delta(k) (kBox = k Box, koverH0 = kBox / H0Box), in a grid kept between steps
         FFTWGrid<NDIM> & density_geff = density_workspace;
         FML::NBODY::compute_delta_fifth_force<NDIM>(density_fourier, density_geff, [&](double kBox) {
-            return GeffOverG(a, kBox / H0Box);
+            return GeffOverG_force(a, kBox / H0Box);
         });
         compute_force_from_total_density(density_geff,
                                          norm_poisson_equation,
                                          density_assignment_method_used,
                                          force_real,
                                          options);
+    }
+
+    /// Does the model have a fifth force to draw (images_fields = fifth_force)? Every model but GR
+    virtual bool has_fifth_force_field() const { return get_name() != "GR"; }
+
+    /// For the images (OutputImages.h): the fifth-force density delta_FF(k) of the density delta(k) (Fourier space),
+    /// defined as in the force: D^2 Phi = 1.5 OmegaM a (newton delta + delta_FF), so the Newtonian force comes from
+    /// newton delta and the fifth force from delta_FF. Returns newton. The default is linear theory, delta_FF =
+    /// (G_eff/G(a, k) - 1) delta; screened models override it with the same method as their force
+    virtual double fifth_force_density_for_output(double a,
+                                                  double H0Box,
+                                                  FFTWGrid<NDIM> & density_fourier,
+                                                  FFTWGrid<NDIM> & density_fifth_force) const {
+        FML::NBODY::compute_delta_fifth_force<NDIM>(density_fourier, density_fifth_force, [&](double kBox) {
+            return GeffOverG_force(a, kBox / H0Box) - 1.0;
+        });
+        return 1.0;
     }
 
     // Model-owned split. The resolved remainder keeps arbitrary future Geff(k,a) models intact:
@@ -389,10 +523,11 @@ class GravityModel {
         const auto & kernel = *storage;
         FML::NBODY::compute_delta_fifth_force<NDIM>(density, density_workspace, [&](double kbox) {
             const double k2 = kbox * kbox;
-            return GeffOverG(a, kbox / H0Box) - model.fourier_multiplier(k2, boxsize) +
+            return GeffOverG_force(a, kbox / H0Box) - model.fourier_multiplier(k2, boxsize) +
                    model.prefactor() * kernel.long_range_filter(k2);
         });
-        compute_force_from_total_density(density_workspace, 1.5 * cosmo->get_OmegaM() * a, assignment, force, options);
+        compute_force_from_total_density(
+            density_workspace, 1.5 * cosmo->get_OmegaM() * cosmo->clustering_mass_factor(a) * a, assignment, force, options);
     }
 
     //========================================================================
@@ -477,6 +612,8 @@ class GravityModel {
         eq.source_2 = [this](double x, double k) { return source_factor_2LPT(std::exp(x), k); };
         eq.source_3a = [this](double x, double k) { return source_factor_3LPTa(std::exp(x), k); };
         eq.source_3b = [this](double x, double k) { return source_factor_3LPTb(std::exp(x), k); };
+        if (has_velocity_friction())
+            eq.friction = [this](double x) { return velocity_friction(std::exp(x)); };
         if (use_neutrino_transfer)
             eq.initial_rate_1 = [this](double x, double k) {
                 return transfers->density_growth_rate(SIMCODE::TransferSpecies::CDMBaryon, k * H0_hmpc, std::exp(x));
@@ -546,6 +683,10 @@ class GravityModel {
         const double x = std::log(a);
         return (x >= f_nu_xmin and x <= f_nu_xmax) ? f_nu_spline(x) : this->cosmo->f_nu(a);
     }
+
+    // IDE: the mass growth m1(log a) (compute_ide_mass_growth)
+    Spline ide_m1_spline;
+    double ide_m1_xmin{0.0}, ide_m1_xmax{0.0};
 
     // The theory's quasi-static limit (see get_quasi_static_gravity)
     std::shared_ptr<const QuasiStaticGravity> quasi_static;

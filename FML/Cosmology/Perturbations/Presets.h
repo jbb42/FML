@@ -13,15 +13,25 @@
 //   musigma                                PerturbationModel_MuSigma.h               mu0, Sigma0
 //   dgp                                    PerturbationModel_DGP.h
 //   fr                                     PerturbationModel_HuSawicky.h             fR0, fR_n
+//   symmetron                              PerturbationModel_QuasiStatic.h           sym_assb, sym_beta, sym_L_mpch,
+//                                                                                    sym_N, sym_M
+//   dilaton                                PerturbationModel_QuasiStatic.h           dil_A2, dil_beta0, dil_r, dil_xi
+//   mbeta                                  PerturbationModel_QuasiStatic.h           mb_beta0, mb_n_beta, mb_m0,
+//                                                                                    mb_n_m
+//   horndeski_table                        PerturbationModel_HorndeskiTable.h        hd_stability_check (model_file:
+//                                                                                    the frontend's table)
 //   horndeski                              PerturbationModel_Horndeski.h             hd_parametrization, hd_cK, hd_cB,
 //                                                                                    hd_cM, hd_M2_ini,
 //                                                                                    hd_stability_check
 //   quintessence(_inverse_power_law, ...)  PerturbationModel_Quintessence.h
 //   ede, ede_zc                            PerturbationModel_EDE.h
+//   axion                                  PerturbationModel_Axion.h
 //   jbd                                    PerturbationModel_BransDicke.h
 //   coupled_quintessence                   PerturbationModel_CoupledQuintessence.h
+//   fading_dark_sector                     PerturbationModel_CoupledQuintessence.h   (lambda = fds_c, beta = fds_cprime)
 //   cubic_galileon                         PerturbationModel_CubicGalileon.h
 //   dark_scattering                        PerturbationModel_DarkScattering.h        ds_xi, ds_cs2
+//   covariant_dark_scattering              PerturbationModel_DarkScattering.h        cds_alpha, ds_cs2
 //   ide                                    PerturbationModel_IDE.h                   ide_cs2, ide_stability_check
 // make_perturbation_model(name, background, model params) builds the model on a background made by
 // make_model_background with the same name and parameters (e.g. on another range).
@@ -33,6 +43,7 @@
 #include <FML/Cosmology/Background/ComponentBackground.h>
 #include <FML/Cosmology/Background/Presets.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel.h>
+#include <FML/Cosmology/Perturbations/PerturbationModel_Axion.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_BransDicke.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_CoupledQuintessence.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_CubicGalileon.h>
@@ -40,11 +51,16 @@
 #include <FML/Cosmology/Perturbations/PerturbationModel_DarkScattering.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_EDE.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_Horndeski.h>
+#include <FML/Cosmology/Perturbations/PerturbationModel_HorndeskiTable.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_HuSawicky.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_IDE.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_LCDM.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_MuSigma.h>
+#include <FML/Cosmology/Perturbations/PerturbationModel_QuasiStatic.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_Quintessence.h>
+#include <FML/Cosmology/Perturbations/QuasiStaticGravity_Dilaton.h>
+#include <FML/Cosmology/Perturbations/QuasiStaticGravity_MBeta.h>
+#include <FML/Cosmology/Perturbations/QuasiStaticGravity_Symmetron.h>
 #include <FML/Cosmology/Perturbations/PerturbationModel_w0wa.h>
 
 #include <functional>
@@ -110,6 +126,51 @@ namespace FML::COSMOLOGY::PERTURBATIONS {
              [](BG bg, M m) {
                  return std::make_shared<const PerturbationModel_HuSawicky>(std::move(bg), m.at("fR0"), m.at("fR_n"));
              }},
+            {"symmetron",
+             "symmetron (flat; Hinterbichler & Khoury 2010, powers (N, M) of Brax et al. 2012): LCDM background, "
+             "quasi-static mu(k, a) = 1 + 2 beta(a)^2 k^2 / (k^2 + a^2 m(a)^2), Sigma = 1",
+             {{"sym_assb", 0.5, "a_ssb: the symmetry-breaking scale factor (no fifth force before)"},
+              {"sym_beta", 1.0, "beta: the coupling in the vacuum relative to gravity"},
+              {"sym_L_mpch", 1.0, "L: the range of the fifth force in the vacuum [Mpc/h]"},
+              {"sym_N", 2.0, "N in V ~ -(phi/phi_*)^N / N + (phi/phi_*)^M / M, beta ~ phi^(N-1) (even, >= 2)"},
+              {"sym_M", 4.0, "M of the potential (even, > N); (N, M) = (2, 4) is the original symmetron"}},
+             [](BG bg, M m) {
+                 const double assb = m.at("sym_assb"), beta = m.at("sym_beta"), L = m.at("sym_L_mpch"),
+                              N = m.at("sym_N"), Mp = m.at("sym_M");
+                 return make_quasistatic_perturbations(
+                     "symmetron", std::move(bg), [=](const BACKGROUND::Background & b) {
+                         return std::make_shared<const QuasiStaticGravity_Symmetron>(b, assb, beta, L, N, Mp);
+                     });
+             }},
+            {"dilaton",
+             "environment-dependent dilaton (flat; Brax et al. 2010, parametrisation of Brax et al. 2012): LCDM "
+             "background, quasi-static mu(k, a) = 1 + 2 beta(a)^2 k^2 / (k^2 + a^2 m(a)^2), Sigma = 1",
+             {{"dil_A2", 5e5, "A2 in A(phi) = 1 + A2 phi^2 / (2 M_pl^2) (>> 1)"},
+              {"dil_beta0", 0.5, "beta0: the coupling today"},
+              {"dil_r", 1.0, "r in m(a) = m0 a^-r (<= 3/2; 3/2: the original dilaton)"},
+              {"dil_xi", 1e-3, "xi = H0 / m0: the range of the fifth force today is 2998 xi Mpc/h"}},
+             [](BG bg, M m) {
+                 const double A2 = m.at("dil_A2"), beta0 = m.at("dil_beta0"), r = m.at("dil_r"), xi = m.at("dil_xi");
+                 return make_quasistatic_perturbations(
+                     "dilaton", std::move(bg), [=](const BACKGROUND::Background & b) {
+                         return std::make_shared<const QuasiStaticGravity_Dilaton>(b, A2, beta0, r, xi);
+                     });
+             }},
+            {"mbeta",
+             "(m(a), beta(a)) chameleon-like theories (flat; Brax, Davis, Li & Winther 2012): LCDM background, "
+             "quasi-static mu(k, a) = 1 + 2 beta^2 k^2 / (k^2 + a^2 m^2), beta = beta0 a^n_beta, m = m0 H0/c a^n_m, "
+             "Sigma = 1",
+             {{"mb_beta0", 0.408248290463863, "beta0 in beta(a) = beta0 a^n_beta (1/sqrt(6): f(R))"},
+              {"mb_n_beta", 0.0, "n_beta"},
+              {"mb_m0", 400.0, "m0 in m(a) = m0 (H0/c) a^n_m"},
+              {"mb_n_m", -4.5, "n_m (-9/2: f(R) with n = 1 in the matter era)"}},
+             [](BG bg, M m) {
+                 const double b0 = m.at("mb_beta0"), nb = m.at("mb_n_beta"), m0 = m.at("mb_m0"), nm = m.at("mb_n_m");
+                 return make_quasistatic_perturbations(
+                     "mbeta", std::move(bg), [=](const BACKGROUND::Background & b) {
+                         return std::make_shared<const QuasiStaticGravity_MBeta>(b, b0, nb, m0, nm);
+                     });
+             }},
             {"horndeski",
              "Horndeski in the alpha parameterization of hi_class (alpha_T = 0, flat): LCDM or w0-wa expansion, "
              "alpha_X = c_X f(a); stability checked",
@@ -134,6 +195,17 @@ namespace FML::COSMOLOGY::PERTURBATIONS {
                                           m.at("hd_M2_ini")),
                      m.at("hd_stability_check") != 0.0);
              }},
+            {"horndeski_table",
+             "reduced Horndeski (K, G3, G4) from the table of SimulationCode/scripts/horndeski_frontend.py "
+             "(model_file): its H(a) and the alpha parameterization with its alphas (alpha_T = 0, flat, no massive "
+             "neutrinos); stability checked",
+             {{"hd_stability_check",
+               1.0,
+               "1: stop for a ghost (D < 0) or gradient (c_s^2 < 0) instability, M*^2 <= 0, or c_s^2 > 1e5 (too "
+               "stiff)"}},
+             [](BG bg, M m) {
+                 return make_horndeski_table_perturbations(std::move(bg), m.at("hd_stability_check") != 0.0);
+             }},
             {"quintessence", "scalar field with V = V0 exp(-lambda phi), " + QUINTESSENCE, {}, quintessence},
             {"quintessence_inverse_power_law",
              "scalar field with V = V0 phi^-alpha (Ratra-Peebles tracker), " + QUINTESSENCE,
@@ -149,6 +221,14 @@ namespace FML::COSMOLOGY::PERTURBATIONS {
              quintessence},
             {"ede", "axion-like early dark energy V ~ (1 - cos(phi/f))^n " + EDE, {}, ede},
             {"ede_zc", "as ede with the redshift ede_zc of the maximum instead of its log10, " + EDE, {}, ede},
+            {"axion",
+             "mixed dark matter: CDM + an ultralight axion field (Klein-Gordon, then the WKB fluid with c_s^2 = k^2 / "
+             "(k^2 + 4 m^2 a^2)), + Lambda (closure); GR",
+             {{"ax_log10_Hinf",
+               0.0,
+               "log10 of the Hubble rate of inflation [GeV] for the axion isocurvature (axionCAMB's Hinf; sets f_axi, "
+               "n_axi from the initial field; <= 0: off)"}},
+             [](BG bg, M) { return std::make_shared<const PerturbationModel_Axion>(std::move(bg)); }},
             {"jbd",
              "Jordan-Brans-Dicke (flat) with Lambda; phi today gives G_eff = G bd_GeffG_today, Omega_Lambda from E(0) "
              "= 1",
@@ -156,6 +236,10 @@ namespace FML::COSMOLOGY::PERTURBATIONS {
              [](BG bg, M) { return std::make_shared<const PerturbationModel_BransDicke>(std::move(bg)); }},
             {"coupled_quintessence",
              "quintessence (V ~ exp(-lambda phi)) coupled to CDM (m ~ exp(-beta phi)); GR",
+             {},
+             [](BG bg, M) { return std::make_shared<const PerturbationModel_CoupledQuintessence>(std::move(bg)); }},
+            {"fading_dark_sector",
+             "Fading Dark Sector (arXiv:2611.17422): coupled_quintessence with lambda = c, beta = c'; GR",
              {},
              [](BG bg, M) { return std::make_shared<const PerturbationModel_CoupledQuintessence>(std::move(bg)); }},
             {"cubic_galileon",
@@ -170,6 +254,15 @@ namespace FML::COSMOLOGY::PERTURBATIONS {
                  return std::make_shared<const PerturbationModel_DarkScattering>(std::move(bg),
                                                                                  m.at("ds_xi"),
                                                                                  m.at("ds_cs2"));
+             }},
+            {"covariant_dark_scattering",
+             "wCDM (dark-energy fluid with perturbations) with the covariantised dark Thomson-like scattering, "
+             "Q^mu = alpha_bar (u_DE^mu - u_c^mu) (Beltran Jimenez et al. 2020); GR",
+             {{"cds_alpha", 1.0, "alpha = 8 pi G alpha_bar / (3 H0^3): the dark-matter rate Gamma = alpha H0 a^4 / Omega_c0 (0: wCDM)"},
+              {"ds_cs2", 1.0, "rest-frame sound speed squared of the dark energy"}},
+             [](BG bg, M m) {
+                 return std::make_shared<const PerturbationModel_DarkScattering>(
+                     std::move(bg), m.at("cds_alpha"), m.at("ds_cs2"), DarkScatteringRate::Covariant);
              }},
             {"ide",
              "dark-energy fluid (w, cs2) exchanging energy with CDM, Q = xi H rho_DE along u_c; GR",

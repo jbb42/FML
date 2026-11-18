@@ -31,6 +31,8 @@ CosmologyFitting/tests/test_*
 !CosmologyFitting/tests/test_*.cpp
 MCMC/tests/test_*
 !MCMC/tests/test_*.cpp
+FriendsOfFriends/tests/test_*
+!FriendsOfFriends/tests/test_*.cpp
 Emulator/example/ee2
 FFTLog/example/fftlog
 FFTWGrid/example/fftwgrid
@@ -141,6 +143,9 @@ tests/test_grids
 tests/test_particles
 tests/test_lpt
 tests/test_nbody
+tests/test_fourier_resampling
+tests/test_testhelpers
+tests/test_distributed_deposit
 
 # Short-range gravity standalone and main-suite executables
 ShortRangeGravity/tests/test_short_range
@@ -195,3 +200,9 @@ HOD/tests/test_hod
 Survey/tests/test_mocks
 Survey/tests/test_workflow
 VoidFinders/tests/test_spherical
+# The grid type of the last build (SimulationCode, SnapshotAnalyzer: USE_PENCIL_GRID)
+.grid_flavour
+
+# Snapshots written by the GadgetUtils and RamsesUtils examples (synthetic data to read)
+GadgetUtils/example/example_gadget.*
+RamsesUtils/example/example_ramses/

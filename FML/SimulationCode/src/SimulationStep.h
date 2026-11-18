@@ -38,6 +38,8 @@ void NBodySimulation<NDIM, T>::run() {
                                           hybrid_bias_options(*this),
                                           pofk_linear,
                                           false);
+            if (params.hybridbias.rsd)
+                compute_hybrid_bias_rsd(*this, redshift, snapshot_folder, false);
             timer.EndTiming("Hybrid bias spectra");
         }
         timer.EndTiming("Timestepping");
@@ -48,6 +50,10 @@ void NBodySimulation<NDIM, T>::run() {
     }
 
     const auto stepper = time_stepping();
+    // CDM and baryons with their own friction: their own coefficients at the scale factors of the steps
+    std::map<SIMCODE::ParticleSpecies, FML::NBODY::TimeStepping> species_steppers;
+    if (SIMCODE::species_have_own_time_stepping<NDIM>(params, *grav))
+        species_steppers = SIMCODE::make_species_time_stepping<NDIM>(params, cosmo, grav);
 
     // If we only give the total number of steps then compute how many steps between outputs
     std::vector<int> nsteps = params.timestep.nsteps;
@@ -76,6 +82,9 @@ void NBodySimulation<NDIM, T>::run() {
         const double amin = (ioutput == 0) ? 1.0 / (1.0 + zini) : 1.0 / (1.0 + output_redshifts[ioutput - 1]);
         const double amax = 1.0 / (1.0 + output_redshifts[ioutput]);
         const auto steps = stepper.steps(amin, amax, nsteps[ioutput]);
+        std::map<SIMCODE::ParticleSpecies, std::vector<Step>> steps_of_species;
+        for (auto & [species, species_stepper] : species_steppers)
+            steps_of_species[species] = species_stepper.restep(steps);
 
         if (nsteps[ioutput] > 0) {
             for (int istep = 0; istep <= nsteps[ioutput]; istep++) {
@@ -103,6 +112,9 @@ void NBodySimulation<NDIM, T>::run() {
                     timer.EndTiming("SortParticles");
                 }
 
+                species_steps.clear();
+                for (auto & [species, species_step_list] : steps_of_species)
+                    species_steps[species] = species_step_list[istep];
                 step(steps[istep]);
 
                 // Most plans are made by now (initial conditions and the first step): save them already so that
@@ -169,7 +181,7 @@ auto NBodySimulation<NDIM, T>::pm_density_workspace(int nmesh, int nleft, int nr
     auto & grid = pm_density_grid;
     if (grid.get_nmesh() != nmesh or grid.get_n_extra_slices_left() != nleft or
         grid.get_n_extra_slices_right() != nright) {
-        grid = FFTWGrid<NDIM>(nmesh, nleft, nright);
+        grid = make_simulation_grid<NDIM>(nmesh, nleft, nright);
         grid.add_memory_label("NBodySimulation::pm_density_grid");
     }
     grid.set_grid_status_real(true);
@@ -183,7 +195,7 @@ auto NBodySimulation<NDIM, T>::pm_workspace(const std::string & slot, int nmesh,
     auto & grid = pm_extra_grids[slot];
     if (grid.get_nmesh() != nmesh or grid.get_n_extra_slices_left() != nleft or
         grid.get_n_extra_slices_right() != nright) {
-        grid = FFTWGrid<NDIM>(nmesh, nleft, nright);
+        grid = make_simulation_grid<NDIM>(nmesh, nleft, nright);
         grid.add_memory_label("NBodySimulation::pm_workspace " + slot);
     }
     grid.set_grid_status_real(true);
@@ -210,6 +222,10 @@ void NBodySimulation<NDIM, T>::step(const Step & s) {
     const auto & sim = params.simulation;
     set_force_settings_for_step(s.apos);
     const auto & force = current_force;
+
+    // Interacting dark energy: the CDM masses at the time of the force
+    if (s.delta_time_kick != 0.0)
+        update_ide_masses(s.apos);
 
     // Force interlacing: average the force over copies of the particles shifted relative to the grid
     const auto nleftright = FML::INTERPOLATION::get_extra_slices(force.density_assignment_method);
@@ -258,15 +274,28 @@ void NBodySimulation<NDIM, T>::step(const Step & s) {
                                                 force.nufft_epsilon);
         } else {
             for_each_species([&](auto & particles, const SIMCODE::SpeciesInfo & info) {
+                const Step & si = step_of(s, info);
                 SIMCODE::kick_particles<NDIM>(particles,
                                               info,
                                               force_real,
                                               s.apos,
-                                              s.delta_time_kick,
-                                              s.velocity_scale,
+                                              si.delta_time_kick,
+                                              si.velocity_scale,
                                               force.density_assignment_method,
                                               sim.boxsize);
             });
+            // COLA with a species whose friction differs from that of the frame (CDM+baryons): its COLA velocity
+            // v - v_LPT gets (velocity_scale_species - velocity_scale_frame) v_LPT(avel), the part of the change of
+            // the LPT velocity the frame's kick (below) does not have
+            if (cola.enabled)
+                for_each_cb_species([&](MPIParticles & particles, const SIMCODE::SpeciesInfo & info) {
+                    const double extra = step_of(s, info).velocity_scale - s.velocity_scale;
+                    if (extra != 0.0)
+                        cola.add_on_LPT_velocity(particles, s.avel, extra);
+                });
+            // Coupled quintessence with CDM and baryon particles: the fifth force on the CDM
+            if (cdm_fifth_force_separate())
+                kick_cdm_fifth_force(s, density_grid_fourier, force_real);
         }
         kick_short_range_force(s);
         // The delta-f weights depend on the momenta
@@ -275,6 +304,36 @@ void NBodySimulation<NDIM, T>::step(const Step & s) {
         timer.EndTiming("Kick");
     }
     drift_and_lightcone(s);
+}
+
+/// A force of the CDM on the CDM alone (GravityModel::has_cdm_fifth_force: coupled quintessence) with CDM and baryon
+/// particles: the CDM feels, besides gravity (the PM kick), the fifth force sourced by the CDM, D^2 Phi_5 = g 1.5
+/// OmegaCDM m(a) a delta_c (g = cdm_fifth_force_coupling, 2 beta^2; m(a) = cdm_mass_factor, the CDM mass relative to
+/// today). A second kick of the CDM (velocity_scale 1, its kick factor) with the force of the CDM
+/// density alone, computed in the density and force grids of the step (their contents are not needed any more)
+template <int NDIM, class T>
+void NBodySimulation<NDIM, T>::kick_cdm_fifth_force(const Step & s,
+                                                    FFTWGrid<NDIM> & density,
+                                                    std::array<FFTWGrid<NDIM>, NDIM> & force) {
+    timer.StartTiming("CDMFifthForce");
+    const auto & method = current_force.density_assignment_method;
+    FML::INTERPOLATION::particles_to_grid(part.get_particles_ptr(), part.get_npart(), part.get_npart_total(), density, method);
+    density.fftw_r2c();
+    const double norm =
+        grav->cdm_fifth_force_coupling(s.apos) * 1.5 * cosmo->get_OmegaCDM() * cosmo->cdm_mass_factor(s.apos) * s.apos;
+    grav->compute_force_from_total_density(density, norm, method, force, force_options);
+    for_each_cb_species([&](MPIParticles & particles, const SIMCODE::SpeciesInfo & info) {
+        if (info.is(SIMCODE::ParticleSpecies::CDM))
+            SIMCODE::kick_particles<NDIM>(particles,
+                                          info,
+                                          force,
+                                          s.apos,
+                                          step_of(s, info).delta_time_kick,
+                                          1.0,
+                                          method,
+                                          params.simulation.boxsize);
+    });
+    timer.EndTiming("CDMFifthForce");
 }
 
 /// Add the short acceleration once, after the ordinary PM velocity scaling and before any drift.
@@ -339,6 +398,10 @@ void NBodySimulation<NDIM, T>::drift_and_lightcone(const Step & s) {
         lightcone->create_lightcone(
             part, s.apos, s.apos_new, s.avel_new, s.delta_time_drift, current_force.density_assignment_method);
         timer.EndTiming("Lightcone");
+        // Friends-of-friends halos on the lightcone (plc_halos)
+        timer.StartTiming("LightconeHalos");
+        lightcone->create_halo_lightcone(part, s.apos, s.apos_new, s.avel_new, s.delta_time_drift);
+        timer.EndTiming("LightconeHalos");
     }
     if (cola.enabled and make_lightcone) {
         timer.StartTiming("COLA");
@@ -353,7 +416,8 @@ void NBodySimulation<NDIM, T>::drift_and_lightcone(const Step & s) {
     if (s.delta_time_drift != 0.0 and not sim.enforce_LPT_trajectories) {
         timer.StartTiming("Drift");
         for_each_species([&](auto & particles, const SIMCODE::SpeciesInfo & info) {
-            SIMCODE::drift_particles<NDIM>(particles, info, s.apos, s.apos_new, s.delta_time_drift, sim.boxsize);
+            SIMCODE::drift_particles<NDIM>(
+                particles, info, s.apos, s.apos_new, step_of(s, info).delta_time_drift, sim.boxsize);
         });
         timer.EndTiming("Drift");
     }
@@ -375,8 +439,11 @@ void NBodySimulation<NDIM, T>::kick_with_interlaced_force(const Step & s) {
     const auto shifts =
         FML::INTERPOLATION::generate_interlacing_shifts<NDIM>(force.interlacing_order, 1.0 / double(force.nmesh));
     // With one task the shifted particles can be wrapped in all directions. Otherwise not in x (they stay on
-    // their task and the grid has one extra slice on the right for the ones that end up outside the domain)
-    const int wrap_type = FML::NTasks == 1 ? 1 : 2;
+    // their task and the grid has one extra slice on the right for the ones that end up outside the domain). With
+    // pencils not in y either
+    const auto & domain = part.get_domain();
+    const bool y_split = not domain.is_slab() and domain.pencil_py() > 1;
+    const int wrap_type = FML::NTasks == 1 ? 1 : (y_split ? 3 : 2);
 
     auto * p = part.get_particles_ptr();
     const size_t npart = part.get_npart();
@@ -502,6 +569,7 @@ void NBodySimulation<NDIM, T>::analyze_and_output(int ioutput, double redshift) 
          [&]() { compute_power_spectrum_multipoles(*this, redshift, snapshot_folder); }},
         {"FOF", params.fof.enabled, [&]() { compute_fof_halos(*this, redshift, snapshot_folder); }},
         {"Bispectrum", params.bispectrum.enabled, [&]() { compute_bispectrum(*this, redshift, snapshot_folder); }},
+        {"Images", params.images.enabled, [&]() { output_images(*this, redshift, snapshot_folder); }},
         {"Hybrid bias spectra",
          params.hybridbias.enabled,
          [&]() { compute_hybrid_bias_spectra(*this, redshift, snapshot_folder); }},

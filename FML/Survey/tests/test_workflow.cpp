@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <FML/Survey/SurveyReconstruction.h>
 #include <FML/Survey/SurveyWindow.h>
 #include <iostream>
@@ -512,6 +514,9 @@ void test_window() {
                          8e-4);
     }
     check(averaged, "binned window matrix integrates the model over output shells");
+    const auto narrow = make_binned_window_matrix(w, kin, {.13, .130000000001}, {0}, {0}, false).apply(model);
+    const auto narrow_point = make_window_matrix(w, kin, {.1300000000005}, {0}, {0}, false).apply(model);
+    check(near(narrow[0], narrow_point[0], 5e-10), "very narrow output shells retain their normalized weight");
     auto ic = make_window_matrix(w, kin, kout, {0}, {0}, true).apply(model);
     check(std::abs(ic[0]) < 1e-10, "global integral-constraint projection nulls convolved monopole at k=0");
     auto no_mix = make_window_matrix(w, {0, .2, .4}, {.1, .3}, {2}, {0}, false).apply({1, 2});
@@ -567,7 +572,8 @@ void test_reconstruction() {
         auto source = survey_detail::empty_mesh(g);
         for (auto i : source.get_real_range()) {
             auto c = source.get_coord_from_index(i);
-            c[0] += source.get_local_x_start();
+            c[0] += int(source.get_local_range(0)[0]);
+            c[1] += int(source.get_local_range(1)[0]);
             double rhs = 0;
             for (int d = 0; d < 3; ++d) {
                 auto prev = c;
@@ -580,13 +586,15 @@ void test_reconstruction() {
         bool same = solution.report.converged;
         for (auto i : source.get_real_range()) {
             auto c = source.get_coord_from_index(i);
-            c[0] += source.get_local_x_start();
+            c[0] += int(source.get_local_range(0)[0]);
+            c[1] += int(source.get_local_range(1)[0]);
             for (int d = 0; d < 3; ++d) {
                 auto prev = c, next = c;
                 --prev[d];
                 ++next[d];
                 const double expected = (potential[index(next)] - potential[index(prev)]) / (2 * g.cellsize());
-                same &= near(solution.field[d].get_real_from_index(i), expected, sizeof(Real) == 4 ? 2e-4 : 1e-7);
+                same &= near(solution.field[d].get_real(source.get_coord_from_index(i)), expected,
+                             sizeof(Real) == 4 ? 2e-4 : 1e-7);
             }
         }
         check(same,
@@ -701,6 +709,41 @@ void test_validation() {
     p.ells = {0, 2, 4};
     p.edges = {0, 1, 1};
     check(rejects([&] { estimate_power(data, randoms, g, p); }), "invalid bin edges are rejected");
+    p.edges = {0, 1, 2};
+    p.i2 = std::numeric_limits<double>::quiet_NaN();
+    check(rejects([&] { estimate_power(data, randoms, g, p); }), "nonfinite power normalization option is rejected");
+    p.i2 = 0;
+    if (FML::NTasks > 1) {
+        for (int scenario = 0; scenario < 10; ++scenario) {
+            auto options = p;
+            auto geometry = g;
+            const std::vector<CatalogPoint> * shifted = nullptr;
+            if (FML::ThisTask == FML::NTasks - 1) {
+                if (scenario == 0)
+                    options.ells = {0};
+                if (scenario == 1)
+                    options.ells = {4, 2, 0};
+                if (scenario == 2)
+                    options.edges = {0, .7, 1.3, 2};
+                if (scenario == 3)
+                    options.edges = {0, .7, 2};
+                if (scenario == 4)
+                    geometry.nmesh = 32;
+                if (scenario == 5)
+                    geometry.observer[0] += 1;
+                if (scenario == 6)
+                    geometry.local_los = false;
+                if (scenario == 7)
+                    options.i2 = 1;
+                if (scenario == 8)
+                    options.compensate_cic = false;
+                if (scenario == 9)
+                    shifted = &randoms;
+            }
+            check(rejects([&] { estimate_power(data, randoms, geometry, options, shifted); }),
+                  "rank-dependent survey power schema rejected before FFT/reduction, case " + std::to_string(scenario));
+        }
+    }
     WindowMultipoles w;
     w.ells = {0};
     w.q = {{1, 1}};
@@ -709,6 +752,70 @@ void test_validation() {
     w.shell_volume = {1, 2};
     check(rejects([&] { make_window_matrix(w, {0, 1}, {.1}); }), "window matrix rejects missing angular multipoles");
     check(!rejects([&] { make_window_matrix(w, {0, 1}, {.1}, {0}, {0}); }), "the same table is valid for ell = 0");
+    auto overflow_randoms = randoms;
+    if (FML::ThisTask == 0 && !overflow_randoms.empty())
+        overflow_randoms[0].weight = 1e200;
+    check(rejects([&] { estimate_window(overflow_randoms, g, {0, 1, 2, 4, 7}, .7, 2.3, 0, false); }),
+          "window arithmetic overflow fails collectively");
+    auto matrix = make_window_matrix(w, {0, .1, .2}, {.05}, {0}, {0}, false);
+    check(rejects([&] { matrix.apply({NAN, 1}); }), "window application rejects nonfinite theory bandpowers");
+    auto invalid_matrix = matrix;
+    invalid_matrix.values[0][0] = INFINITY;
+    bool invalid_result = false;
+    try {
+        invalid_matrix.apply({1, 1});
+    } catch (const std::overflow_error &) {
+        invalid_result = true;
+    }
+    check(invalid_result, "window application rejects a nonfinite result without a second matrix scan");
+    for (int scenario = 0; scenario < 5; ++scenario) {
+        auto bad = w;
+        if (scenario == 0)
+            bad.s[1] = bad.s[0];
+        if (scenario == 1)
+            bad.s[0] = 1.6;
+        if (scenario == 2)
+            bad.nvectors = {1, -1};
+        if (scenario == 3)
+            bad.nvectors = {1, NAN};
+        if (scenario == 4)
+            bad.shell_volume[0] = INFINITY;
+        check(rejects([&] { make_window_matrix(bad, {0, .1}, {.05}, {0}, {0}, false); }),
+              "malformed window interpolation metadata rejected, case " + std::to_string(scenario));
+    }
+    if (FML::NTasks > 1)
+        for (int scenario = 0; scenario < 10; ++scenario) {
+            auto geometry = g;
+            std::vector<double> edges{0, 1, 2, 4, 7};
+            double alpha = .7, i2 = 2.3;
+            int maxell = 8;
+            bool self = true;
+            if (FML::ThisTask == FML::NTasks - 1) {
+                if (scenario == 0)
+                    geometry.nmesh = 32;
+                if (scenario == 1)
+                    geometry.boxsize = 32;
+                if (scenario == 2)
+                    geometry.local_los = false;
+                if (scenario == 3)
+                    edges.pop_back();
+                if (scenario == 4)
+                    edges[1] = .5;
+                if (scenario == 5)
+                    alpha = .8;
+                if (scenario == 6)
+                    i2 = 3;
+                if (scenario == 7)
+                    maxell = 4;
+                if (scenario == 8)
+                    self = false;
+                if (scenario == 9)
+                    geometry.observer[0] += 1;
+            }
+            check(rejects([&] { estimate_window(randoms, geometry, edges, alpha, i2, maxell, self); }),
+                  "rank-dependent survey window schema rejected before FFT/reduction, case " +
+                      std::to_string(scenario));
+        }
     w.shell_volume.clear();
     check(rejects([&] { make_window_matrix(w, {0, 1}, {.1}, {0}, {0}); }),
           "malformed window dimensions throw before indexing arrays");
@@ -719,6 +826,19 @@ void test_validation() {
 }
 int main(int argc, char ** argv) {
     const std::string mode = argc > 1 ? argv[1] : "all";
+#ifdef FML_SURVEY_PENCIL_MESH
+    // The meshes are PencilGrids on the pencils FML_PENCILS="px py" (default: as square as possible)
+    {
+        int px = 1;
+        for (int p = 1; p * p <= FML::NTasks; p++)
+            if (FML::NTasks % p == 0)
+                px = p;
+        int py = FML::NTasks / px;
+        if (const char * e = std::getenv("FML_PENCILS"))
+            std::sscanf(e, "%d %d", &px, &py);
+        FML::set_domain(FML::Domain::uniform_pencil(px, py));
+    }
+#endif
     if (mode == "all" || mode == "power")
         test_power();
     if (mode == "all" || mode == "window")

@@ -30,11 +30,71 @@ namespace SIMCODE {
             grav.short_range_interaction(params.ic.a_initial());
         }
 
+        if (params.images.enabled) {
+            if (NDIM != 3)
+                fail("images are only implemented for NDIM = 3");
+            if (params.images.image.wants("fifth_force") and not grav.has_fifth_force_field())
+                fail("images_fields: fifth_force needs a gravity model with a fifth force (gravity_model = " +
+                     grav.get_name() + ")");
+        }
+
         if (params.baryonification.enabled) {
             if (NDIM != 3 || grav.get_name() != "GR" || cosmo.get_OmegaMNu() != 0.0)
                 fail("baryonification currently requires NDIM=3, gravity_model=GR and cosmology_OmegaMNu=0");
             params.baryonification.profile_model(cosmo.get_Omegab() / cosmo.get_OmegaM()).validate();
         }
+
+        // Coupled quintessence: the background is the cosmology's and the force and velocity term of the CDM the gravity
+        // model's (GravityModel_CoupledQuintessence: one fluid, or with particle_baryons a second kick of the CDM,
+        // kick_cdm_fifth_force, and its own steps). The two go together
+        // (FadingDarkSector is the same model as CoupledQuintessence, with lambda = c, beta = c')
+        const bool cq_gravity = grav.get_name() == "CoupledQuintessence" or grav.get_name() == "FadingDarkSector";
+        if (cosmo.is_coupled_quintessence() != cq_gravity)
+            fail("cosmology_model = CoupledQuintessence or FadingDarkSector and gravity_model = CoupledQuintessence or "
+                 "FadingDarkSector go together (the background of the coupled field and the force and velocity term "
+                 "of the coupled CDM)");
+        if (cosmo.is_coupled_quintessence()) {
+            if (cosmo.get_OmegaMNu() != 0.0)
+                fail("cosmology_model = CoupledQuintessence is not implemented with massive neutrinos");
+            if (params.particle.baryons and params.force.short_range.enabled)
+                fail("cosmology_model = CoupledQuintessence with particle_baryons = true is not implemented with "
+                     "force_short_range");
+            if (params.particle.baryons and params.timestep.method == FML::NBODY::TimestepMethod::BullFrog)
+                fail("cosmology_model = CoupledQuintessence with particle_baryons = true needs timestep_method = "
+                     "Quinn, Tassev or FastPM (BullFrog follows the growth of one fluid)");
+        }
+
+        // The cubic Galileon force needs the background of the Galileon (the cosmology CubicGalileon with gravity_model
+        // = GR is the background alone)
+        if (grav.get_name() == "CubicGalileon" and cosmo.get_name() != "CubicGalileon")
+            fail(
+                "gravity_model = CubicGalileon needs cosmology_model = CubicGalileon (the background of the Galileon)");
+
+        // Generic Horndeski: the background of the frontend's table
+        if (grav.get_name() == "Horndeski" and cosmo.get_name() != "Horndeski" and cosmo.get_name() != "Tabulated")
+            fail("gravity_model = Horndeski needs cosmology_model = Horndeski (or Tabulated with the frontend's "
+                 "_background.txt)");
+
+        // Interacting dark energy: the CDM particles carry their own masses (Simulation::update_ide_masses)
+        if (cosmo.is_ide()) {
+            if (cosmo.get_OmegaMNu() != 0.0)
+                fail("cosmology_model = IDE is not implemented with massive neutrinos");
+            if (params.particle.baryons and params.particle.baryon_relative_mode != "displacement")
+                fail("cosmology_model = IDE needs particle_baryon_relative_mode = displacement (the particle masses "
+                     "are those of the energy exchange)");
+            if (params.particle.baryons and params.timestep.method == FML::NBODY::TimestepMethod::BullFrog)
+                fail("cosmology_model = IDE with particle_baryons = true needs timestep_method = Quinn, Tassev or "
+                     "FastPM (BullFrog follows the growth of one fluid)");
+        }
+
+        // Velocity friction (GravityModel::velocity_friction): on the CDM+baryon fluid, or with particle_baryons on the
+        // CDM particles alone (their own steps, SpeciesTimeStepping.h; not with BullFrog). Not with neutrino particles
+        if (grav.has_velocity_friction() and params.particle.neutrinos)
+            fail("a cosmology with velocity friction needs particle_neutrinos = false");
+        if (grav.has_velocity_friction() and params.particle.baryons and
+            params.timestep.method == FML::NBODY::TimestepMethod::BullFrog)
+            fail("a cosmology with velocity friction and particle_baryons = true needs timestep_method = Quinn, Tassev "
+                 "or FastPM (BullFrog follows the growth of one fluid)");
 
         // The particle species (CDM+baryons as one, or CDM and baryons, and massive neutrinos)
         if (params.particle.neutrinos and not(cosmo.get_OmegaMNu() > 0.0 and cosmo.get_Mnu_eV() > 0.0))

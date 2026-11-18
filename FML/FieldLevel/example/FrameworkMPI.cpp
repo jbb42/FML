@@ -1,0 +1,97 @@
+#include <FML/FieldLevel/DistributedLPT.h>
+#include <FML/FieldLevel/Frontend.h>
+#include <iostream>
+namespace FF = FML::FIELDLEVEL::FRAMEWORK;
+template <class Forward>
+int demonstrate(const Forward & model) {
+    auto work = model.workspace();
+    const auto parameters = model.initial_parameters();                        // Model-specific scalar parameters
+    const auto data = model.mock(model.white_noise(10), parameters, 11, work); // LOCAL modes
+    FF::BasicPosterior<Forward> posterior(model, data);
+    const auto fit = FF::map(posterior, model.white_noise(12), parameters, false);
+    if constexpr (std::is_same_v<Forward, FML::FIELDLEVEL::FRONTEND::LinearModel>) {
+        const auto exact = model.linear_conditional(data, parameters, work); // LOCAL mean field
+        double error = 0;
+        for (size_t q = 0; q < model.cells(); ++q)
+            error = std::max(error, std::abs(fit.white[q] - exact.mean[q]));
+        error = model.maximum(error); // Every rank participates; only root prints.
+        if (FML::ThisTask == 0)
+            std::cout << "Linear MPI MAP maximum error: " << error << '\n';
+    } else if (FML::ThisTask == 0) {
+        std::cout << (model.configuration().evolution == FF::Evolution::LPT2 ? "2LPT" : "1LPT")
+                  << " MPI MAP gradient norm: " << fit.gradient_norm << '\n';
+    }
+    FML::MCMC::HMCOptions options;
+    options.warmup = 100;
+    options.samples = 200;
+    options.n_leapfrog = 6;
+    options.seed = 13;
+    double average_norm = 0;
+    const auto chain = FF::sample(posterior,
+                                  fit.white,
+                                  parameters,
+                                  options,
+                                  false,
+                                  [&](const auto & local_white, const auto &, size_t) {
+                                      double norm = 0;
+                                      for (double x : local_white)
+                                          norm += x * x;
+                                      average_norm += model.sum(norm) / options.samples;
+                                  });
+    // Fixed-parameter sampling leaves only the local white field in last.
+    // The conversion is 1 for this toy; use a H f L for physical peculiar velocities.
+    const auto reconstructed = model.reconstruct(chain.last, parameters, work, 1.);
+    double initial2 = 0, matter2 = 0, velocity2 = 0;
+    for (size_t q = 0; q < model.cells(); ++q) {
+        initial2 += reconstructed.initial_density[q] * reconstructed.initial_density[q];
+        matter2 += reconstructed.matter_density[q] * reconstructed.matter_density[q];
+        for (int c = 0; c < 3; ++c)
+            velocity2 += reconstructed.velocity[c][q] * reconstructed.velocity[c][q];
+    }
+    const double cells = double(model.layout().global_cells);
+    const double initial_rms = std::sqrt(model.sum(initial2) / cells);
+    const double matter_rms = std::sqrt(model.sum(matter2) / cells);
+    const double velocity_rms = std::sqrt(model.sum(velocity2) / cells);
+    if (FML::ThisTask == 0)
+        std::cout << "Field HMC acceptance: " << chain.acceptance << " divergences: " << chain.divergences
+                  << "\nMean squared white-field norm: " << average_norm
+                  << "\nInitial / real-space matter RMS: " << initial_rms << " / " << matter_rms
+                  << "\nLagrangian velocity RMS (conversion 1): " << velocity_rms << '\n';
+    return fit.status == FF::MAPStatus::Converged ? 0 : 1;
+}
+
+int main(int argc, char ** argv) {
+    FML::FMLSetup::init(&argc, &argv);
+    try {
+        FML::FIELDLEVEL::FRONTEND::initialize(8, 16);
+    } catch (const std::exception & error) {
+        if (FML::ThisTask == 0)
+            std::cerr << error.what() << '\n';
+        return 1;
+    }
+    const bool first = argc == 2 && std::string(argv[1]) == "1lpt";
+    const bool second = argc == 2 && std::string(argv[1]) == "2lpt";
+    const bool lpt = first || second;
+    if (argc > 2 || (argc == 2 && !lpt)) {
+        if (FML::ThisTask == 0)
+            std::cerr << "Usage: framework_mpi [1lpt|2lpt]\n";
+        return 1;
+    }
+    FF::Configuration c;
+    c.mesh = 8;
+    c.density_mesh = 16;
+    c.boxsize = 100;
+    c.initial_cutoff = lpt ? .115 : .15;
+    c.bias_cutoff = .08;
+    c.likelihood_cutoff = .11;
+    c.growth_rate = .6;
+    auto spectrum = FF::Spectrum::fixed([](double) { return 200.; });
+    if (lpt) {
+        c.evolution = second ? FF::Evolution::LPT2 : FF::Evolution::Zeldovich;
+        FML::FIELDLEVEL::FRONTEND::LPTModel model(c, spectrum);
+        return demonstrate(model);
+    }
+    c.evolution = FF::Evolution::Linear;
+    FML::FIELDLEVEL::FRONTEND::LinearModel model(c, spectrum);
+    return demonstrate(model);
+}

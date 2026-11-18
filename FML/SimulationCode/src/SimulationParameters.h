@@ -6,6 +6,7 @@
 #include "ParameterDefaults.h"
 #include "ParameterFields.h"
 #include "ShortRangeSettings.h"
+#include <FML/Analysis/Images.h>
 #include <FML/Global/Global.h>
 #include <FML/Interpolation/ParticleGridInterpolation.h>
 #include <FML/ParameterMap/ParameterMap.h>
@@ -312,7 +313,7 @@ namespace SIMCODE {
                               "Divide the force by W(k)^2 where W is the window function of "
                               "force_density_assignment_method (corrects for the smoothing of the assignment and the "
                               "interpolation). Unstable unless the aliasing is suppressed (force_interlacing_order "
-                              "> 1, see README)");
+                              "> 1, see EVOLUTION.md)");
             f.always_optional("force_early_method",
                               early_method,
                               "none",
@@ -456,6 +457,8 @@ namespace SIMCODE {
 
         // ic_type_of_input = internal: the settings of the Einstein-Boltzmann solver (read by TransferInput.h)
         std::vector<std::string> internal_solver_parameters;
+        // internal and tables: ultralight axions in the IC only (ic_axion_fraction > 0; read by TransferInput.h)
+        double axion_fraction{0.0}, axion_log10_m{-22.0}, axion_switch_mH{0.0};
 
         double a_initial() const { return 1.0 / (1.0 + initial_redshift); }
         /// The value of ic_type_of_input
@@ -516,7 +519,7 @@ namespace SIMCODE {
                 "Offset of the initial particle lattice from the nodes of the force grid. fiducial: half a "
                 "force grid cell if force_nmesh > particle_Npart_1D, otherwise none. With particles "
                 "exactly on the nodes of a finer grid, CIC responds to the size of the displacement and gives large "
-                "spurious forces (see the force grid section of README.md)",
+                "spurious forces (see the force grid section of EVOLUTION.md)",
                 {"fiducial", "none", "half_force_cell"});
             f.choice(Need::Required,
                      "ic_type_of_input",
@@ -532,7 +535,7 @@ namespace SIMCODE {
                      "Einstein-Boltzmann solver run with the cosmology of the simulation, cosmology_model included; "
                      "the old name internal_transfer is also accepted) or tables (the tables of the internal solver "
                      "in one file, made with ./nbody --write-transfers parameterfile.lua file; checked against the "
-                     "cosmology of the simulation). See FML/TransferProviders and README.md",
+                     "cosmology of the simulation). See FML/TransferProviders and INITIAL_CONDITIONS.md",
                      {{"powerspectrum", ICInputType::PowerSpectrum},
                       {"transferfunction", ICInputType::TransferFunction},
                       {"camb", ICInputType::CambFiles},
@@ -568,7 +571,34 @@ namespace SIMCODE {
                            "The cosmology (h, OmegaB, ..., model and its parameters, A_s, n_s, k_pivot, the "
                            "neutrino masses, preset), alpha_s and the k-grid (pert_k_min, pert_k_max, pert_n_k, "
                            "pert_dk_max) are set by the simulation and are an error here and in the .ini file. "
-                           "See README.md");
+                           "See INITIAL_CONDITIONS.md");
+                   });
+            f.when(is_one_of("ic_type_of_input", {"internal", "internal_transfer", "tables"}),
+                   "ic_type_of_input = internal or tables",
+                   [&]() {
+                       f.optional("ic_axion_fraction",
+                                  axion_fraction,
+                                  0.0,
+                                  "Ultralight axions in the IC only: the share of the dark matter (cosmology_OmegaCDM) "
+                                  "that is an axion of mass 10^ic_axion_log10_m eV (the Einstein-Boltzmann solver's "
+                                  "model axion, as axionCAMB). The particles are all the dark matter and start from "
+                                  "the CDM + axion transfer functions (the axion's suppression of the small-scale "
+                                  "power); the simulation itself is LCDM (cosmology_model = LCDM), so the axion's "
+                                  "pressure after the start is neglected. 0 = off. Needs an axion that is a w = 0 "
+                                  "fluid before the start (m >~ 1e-26 eV for z_ini ~ 50). See INITIAL_CONDITIONS.md",
+                                  check::in_range(0.0, 1.0));
+                       f.optional("ic_axion_log10_m",
+                                  axion_log10_m,
+                                  -22.0,
+                                  "log10 of the axion mass in eV (the solver's ax_log10_m; with ic_axion_fraction > 0)",
+                                  check::in_range(-30.0, -15.0));
+                       f.optional("ic_axion_switch_mH",
+                                  axion_switch_mH,
+                                  0.0,
+                                  "The switch of the axion to its oscillation-averaged fluid (the solver's "
+                                  "ax_switch_mH; with ic_axion_fraction > 0): 0 = once it oscillates fast (m/H ~ "
+                                  "125), 3 = at m = 3H as axionCAMB",
+                                  check::non_negative());
                    });
             f.required("ic_input_redshift", input_redshift, 0.0, "The redshift of the input P(k) / T(k)");
             f.optional("ic_fix_amplitude",
@@ -796,6 +826,15 @@ namespace SIMCODE {
         double massfunction_Mmin;      // ...and the range (Msun/h)
         double massfunction_Mmax;
         std::vector<std::string> so_definitions; // Spherical overdensity masses around the halos (e.g. 200m, 500c, vir)
+        // Relaxed FoF (FriendsOfFriends/RelaxedFoF.h; Dai et al. 2019, FastPM's RFOF): instead of standard FoF
+        bool relaxed{false};
+        std::string relaxed_mode{"fastpm"};
+        double relaxed_l1{0.25}, relaxed_l6{0.24}, relaxed_a1{0.012}, relaxed_a2{0.06};
+        double relaxed_linking_length_min{0.2};
+        std::vector<int> relaxed_bin_edges{20, 40, 80, 160, 320};
+        int relaxed_nmin{8};
+        bool relaxed_velocity_rejection{true};
+        double relaxed_b1{7.02}, relaxed_b2{6.025}, relaxed_r0_min{0.0};
 
         /// The parameters (see ParameterFields.h)
         template <class F>
@@ -847,6 +886,64 @@ namespace SIMCODE {
                                   "\"vir\"} (<Delta>m: Delta times the mean CDM+baryon density, <Delta>c: the critical "
                                   "density, vir: Bryan & Norman 1998). Empty: none. The spheres must fit in "
                                   "fof_buffer_length_mpch");
+                f.always_optional("fof_relaxed",
+                                  relaxed,
+                                  false,
+                                  "fof: relaxed FoF instead of standard FoF (Dai et al. 2019; FastPM's RFOF; see "
+                                  "FriendsOfFriends/RelaxedFoF.md): a linking length that is longer for small halos, "
+                                  "and rejection of fake halos by their velocity dispersion. fof_linking_length and "
+                                  "fof_nmin_per_halo are then not used");
+                f.if_true("fof_relaxed", [&]() {
+                    f.always_optional("fof_relaxed_mode",
+                                      relaxed_mode,
+                                      "fastpm",
+                                      "fastpm: the halo bins only, as FastPM (its parameters were fitted for this); "
+                                      "paper: then shorter linking lengths (x 0.9 per pass) for the particles of "
+                                      "rejected halos, as Algorithm 1 of the paper",
+                                      {"fastpm", "paper"});
+                    f.always_optional("fof_relaxed_l1",
+                                      relaxed_l1,
+                                      0.25,
+                                      "Linking length of the smallest halos: l1 - a1 / (1 + z) (units of the mean "
+                                      "particle separation; FastPM's defaults are fitted to TNG300-2-Dark for FastPM "
+                                      "with a mean separation of 0.3 Mpc/h and 40 steps)");
+                    f.always_optional("fof_relaxed_a1", relaxed_a1, 0.012, "See fof_relaxed_l1");
+                    f.always_optional("fof_relaxed_l6",
+                                      relaxed_l6,
+                                      0.24,
+                                      "Linking length of the largest halos: max(l6 - a2 / (1 + z), "
+                                      "fof_relaxed_linking_length_min); linear in the bin in between");
+                    f.always_optional("fof_relaxed_a2", relaxed_a2, 0.06, "See fof_relaxed_l6");
+                    f.always_optional("fof_relaxed_linking_length_min",
+                                      relaxed_linking_length_min,
+                                      0.2,
+                                      "Smallest linking length of the largest halos (units of the mean particle "
+                                      "separation)");
+                    f.always_optional("fof_relaxed_bin_edges",
+                                      relaxed_bin_edges,
+                                      std::vector<int>{20, 40, 80, 160, 320},
+                                      "Upper edges (particles) of the halo bins; the last bin has no upper edge");
+                    f.always_optional("fof_relaxed_nmin",
+                                      relaxed_nmin,
+                                      8,
+                                      "Minimum number of particles per halo (of one species with particle_baryons)",
+                                      check::at_least(2));
+                    f.always_optional("fof_relaxed_velocity_rejection",
+                                      relaxed_velocity_rejection,
+                                      true,
+                                      "Reject halos with a 3D velocity dispersion above r0(z) V0 (E(z) M / 1e15 "
+                                      "Msun/h)^(1/3), V0 = 1100 km/s, r0 = b1 - b2 ln(1 + z)");
+                    f.always_optional("fof_relaxed_b1", relaxed_b1, 7.02, "See fof_relaxed_velocity_rejection");
+                    f.always_optional("fof_relaxed_b2",
+                                      relaxed_b2,
+                                      6.025,
+                                      "See fof_relaxed_velocity_rejection. With the defaults r0 is 0.40 at z = 2 and "
+                                      "<= 0 for z > 2.2 (all halos rejected): they were fitted at z <= 2");
+                    f.always_optional("fof_relaxed_r0_min",
+                                      relaxed_r0_min,
+                                      0.0,
+                                      "Floor of r0(z) (0: none, as FastPM)");
+                });
             });
         }
     };
@@ -932,6 +1029,7 @@ namespace SIMCODE {
         std::string density_assignment_method; // Density assignment method (NGP, CIC, ...)
         bool interlacing;                      // Use interlacing for alias reduction?
         bool subtract_shotnoise;               // Subtract shotnoise?
+        bool shell_overlap_weights;            // Weight the cells by their overlap with the k-shells?
 
         /// The parameters (see ParameterFields.h)
         template <class F>
@@ -951,6 +1049,32 @@ namespace SIMCODE {
                            choices::assignment_methods);
                 f.optional("bispectrum_interlacing", interlacing, true, "Use interlaced grids to reduce aliasing");
                 f.optional("bispectrum_subtract_shotnoise", subtract_shotnoise, false, "Subtract shot-noise");
+                f.always_optional("bispectrum_shell_overlap_weights",
+                                  shell_overlap_weights,
+                                  false,
+                                  "Weight the Fourier cells by their volume overlap with the k-shells (continuous "
+                                  "shells, as in CONCEPT) instead of 0/1 from the cell centre");
+            });
+        }
+    };
+
+    struct ImagesSettings {
+        bool enabled;                       // Draw images of fields at every output
+        FML::ANALYSIS::ImageSettings image; // Which fields, the grid, the slab and the colours (images_<name>)
+
+        /// The parameters (see ParameterFields.h): images_<name> as in FML/Analysis/Images.h (also SnapshotAnalyzer)
+        template <class F>
+        void fields(F && f) {
+            f.always_optional("images",
+                              enabled,
+                              false,
+                              "Draw PNG images of fields at every output: a slab projected along an axis "
+                              "(image_<field>_z<z>.png in the snapshot folder)");
+            f.if_true("images", [&]() {
+                image.parameters([&](const char * name, auto & value, const auto & default_value, const char * text) {
+                    f.always_optional(
+                        std::string(FML::ANALYSIS::ImageSettings::prefix) + name, value, default_value, text);
+                });
             });
         }
     };
@@ -973,6 +1097,9 @@ namespace SIMCODE {
         double lpt_kmin;                       // Lower limit of the k-integrals of the LPT predictions (h/Mpc)
         double cv_beta_k0;                     // beta(k) of the control variate: [1 - tanh((k - k0) / dk)] / 2
         double cv_beta_dk;                     // (k0 <= 0: beta = 1)
+        bool output_linear_field{false};       // Write delta_L(zini) on the lattice (for SnapshotAnalyzer)
+        bool rsd{false};                       // Also the redshift-space multipoles
+        int rsd_ellmax{4};                     // The largest multipole of the redshift-space spectra
 
         /// The parameters (see ParameterFields.h)
         template <class F>
@@ -986,6 +1113,29 @@ namespace SIMCODE {
                               "of the IC scaled to the output redshift with the growth factor of the gravity model");
             f.if_true("hybridbias", [&]() {
                 f.required("hybridbias_nmesh", nmesh, 0, "Grid size for the advected fields", check::positive());
+                f.always_optional("hybridbias_output_linear_field",
+                                  output_linear_field,
+                                  false,
+                                  "Write the linear field delta_L(z_ini) on the particle lattice to "
+                                  "hybridbias_linear_field_<name>.dat in output_folder (FML linear field file, "
+                                  "ComputePowerSpectra/HybridBiasLinearFieldIO.h): the input of the hybrid bias "
+                                  "spectra of SnapshotAnalyzer (hybridbias_linear_field_source = \"file\")");
+                f.always_optional(
+                    "hybridbias_rsd",
+                    rsd,
+                    false,
+                    "Also the redshift-space multipoles P_ab^l(k) of the spectra (the operators assigned at the "
+                    "redshift-space positions of the particles, mean over the three axes): hybridbias_rsd_z<z>.txt. "
+                    "With hybridbias_zeldovich_field / hybridbias_zeldovich / hybridbias_oneloop also the "
+                    "Zel'dovich field (hybridbias_rsd_zeldovichfield_z<z>.txt), its exact mean "
+                    "(hybridbias_rsd_zeldovich_z<z>.txt), the control variate (hybridbias_rsd_cv_z<z>.txt) and the "
+                    "one-loop LPT prediction with EdS kernels (hybridbias_rsd_oneloop_z<z>.txt), with the growth rate "
+                    "f at k = 0.01 h/Mpc (ComputePowerSpectra/HYBRID_BIAS_RSD.md)");
+                f.always_optional("hybridbias_rsd_ellmax",
+                                  rsd_ellmax,
+                                  4,
+                                  "The largest multipole of the redshift-space spectra (even)",
+                                  check::non_negative());
                 f.optional("hybridbias_noperators",
                            noperators,
                            5,
@@ -1123,6 +1273,11 @@ namespace SIMCODE {
         double da_maps;               // Roughly the size of the bins in a for the maps
         bool use_chunkpix;            // Store the maps with chunkpix
         int nside_chunks;             // Healpix nside of the chunks
+        bool halos{false};            // Friends-of-friends halos on the lightcone
+        int halos_nmin_per_halo{20};
+        double halos_linking_length{0.2};
+        double halos_buffer_mpch{0.0};
+        bool halos_shell_only{true};
 
         /// The parameters (see ParameterFields.h)
         template <class F>
@@ -1169,6 +1324,38 @@ namespace SIMCODE {
                     "of Phi/c^2 at the shells. Phi from the Poisson equation with the density used for the "
                     "force (the GR potential also for modified gravity models). Costs one extra FFT per "
                     "step while recording the lightcone");
+                f.always_optional(
+                    "plc_halos",
+                    halos,
+                    false,
+                    "Friends-of-friends halos on the lightcone: at every step that records the lightcone, FoF on the "
+                    "particles near the lightcone shell of the step (with their true velocities); each halo is "
+                    "recorded once, when its center of mass crosses the lightcone (moving with the mean velocity of "
+                    "its particles, as the particles do), in lightcone_<name>/halos_lightcone.txt");
+                f.if_true("plc_halos", [&]() {
+                    f.always_optional("plc_halos_nmin_per_halo",
+                                      halos_nmin_per_halo,
+                                      20,
+                                      "Minimum number of particles per lightcone halo",
+                                      check::positive());
+                    f.always_optional("plc_halos_linking_length",
+                                      halos_linking_length,
+                                      0.2,
+                                      "Linking length of the lightcone halos in units of the mean particle separation",
+                                      check::positive());
+                    f.always_optional("plc_halos_buffer_mpch",
+                                      halos_buffer_mpch,
+                                      0.0,
+                                      "FoF buffer region from neighbor tasks for the lightcone halos (Mpc/h; larger "
+                                      "than the largest halo). 0: the larger of 3 Mpc/h and 10 linking lengths",
+                                      check::non_negative());
+                    f.always_optional("plc_halos_shell_only",
+                                      halos_shell_only,
+                                      true,
+                                      "Link only the particles within plc_boundary_mpch (plus the largest "
+                                      "displacement of the step) of the lightcone shell of the step (in any "
+                                      "replica). false: all the particles every step (for tests; the same halos)");
+                });
                 f.optional("plc_make_onion_density_maps",
                            make_onion_density_maps,
                            false,
@@ -1249,6 +1436,7 @@ namespace SIMCODE {
         PofkSettings pofk;
         PofkMultipoleSettings pofk_multipole;
         BispectrumSettings bispectrum;
+        ImagesSettings images;
         HybridBiasSettings hybridbias;
         OutputSettings output;
         LightconeSettings lightcone;
@@ -1284,6 +1472,7 @@ namespace SIMCODE {
             pofk_multipole.fields(f);
             bispectrum.fields(f);
             hybridbias.fields(f);
+            images.fields(f);
             output.fields(f);
             lightcone.fields(f);
 
@@ -1320,32 +1509,48 @@ namespace SIMCODE {
                 std::cout
                     << "WARNING: force_density_method / force_deconvolve_window / force_early_method are meant for "
                        "force_nmesh = particle_Npart_1D. With a finer force grid they amplify the discreteness of the "
-                       "particles (see README)\n";
+                       "particles (see EVOLUTION.md)\n";
 
             // Starting from the Big Bang the force at early times (particles close to the lattice) has to be accurate:
-            // the CIC and interlaced forces make the modes with k > ~k_Ny/8 grow wrongly there (see README)
+            // the CIC and interlaced forces make the modes with k > ~k_Ny/8 grow wrongly there (see EVOLUTION.md)
             if (ic.initial_redshift > 100.0 and force.early_method == "none" and
                 force.density_method == "assignment" and force.interpolation_method != "nufft" and FML::ThisTask == 0)
                 std::cout
                     << "WARNING: starting at z = " << ic.initial_redshift
                     << " without force_early_method: use force_early_method = nufft (force_early_until_redshift ~ 10) "
-                       "for an accurate force while the particles are close to the lattice (see README)\n";
+                       "for an accurate force while the particles are close to the lattice (see EVOLUTION.md)\n";
 
             // The baryon-CDM relative mode in the displacements of the particles (a ~50 kpc/h CDM-baryon offset per
             // pair) gets a spurious discrete-mode growth once the force grid resolves it, and is partly lost in
-            // collapsed regions (P(delta_c - delta_b) ~ 0.5 of linear theory at z = 0 on large scales). See README
+            // collapsed regions (P(delta_c - delta_b) ~ 0.5 of linear theory at z = 0 on large scales). See SPECIES.md
             // (also the part of it that grows after zini with mass_ini)
             if (particle.baryons and particle.baryon_relative_mode != "mass" and force.nmesh > 2 * particle.Npart_1D and
                 FML::ThisTask == 0)
                 std::cout
                     << "WARNING: particle_baryon_relative_mode = " << particle.baryon_relative_mode
                     << " with force_nmesh > 2 particle_Npart_1D: the baryon-CDM relative mode is not reliable (use "
-                       "particle_baryon_relative_mode = mass, see README)\n";
+                       "particle_baryon_relative_mode = mass, see SPECIES.md)\n";
         }
 
         /// Check that the parameters are consistent. Throws if not
         void validate() {
             auto fail = [](const std::string & msg) { throw std::runtime_error("Invalid parameters: " + msg); };
+
+            if (images.enabled) {
+                try {
+                    images.image.validate();
+                    std::vector<std::string> allowed{"density", "velocity_divergence", "fifth_force"};
+                    if (particle.baryons)
+                        allowed.push_back("baryons_minus_cdm");
+                    if (particle.neutrinos or force.linear_massive_neutrinos)
+                        allowed.push_back("neutrinos");
+                    images.image.check_fields(allowed,
+                                              "; baryons_minus_cdm needs particle_baryons, neutrinos needs "
+                                              "particle_neutrinos or force_linear_massive_neutrinos");
+                } catch (const std::exception & e) {
+                    fail(e.what());
+                }
+            }
 
             if (baryonification.enabled) {
                 baryonification.validate();
@@ -1426,6 +1631,8 @@ namespace SIMCODE {
                 if (ic.random_field_type == ICRandomFieldType::ReadParticles)
                     fail("hybridbias needs the linear density field of the initial conditions and particles that start "
                          "on a regular lattice (not ic_random_field_type = read_particles)");
+                if (hybridbias.rsd and hybridbias.rsd_ellmax % 2 != 0)
+                    fail("hybridbias_rsd_ellmax must be even");
                 if ((hybridbias.zeldovich or hybridbias.oneloop) and hybridbias.kcut_over_nyquist <= 0.0)
                     fail("hybridbias_zeldovich and hybridbias_oneloop need an isotropic cut of the operators "
                          "(hybridbias_kcut_over_nyquist > 0)");

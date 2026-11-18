@@ -22,13 +22,16 @@ Species.h                  PowerLawSpecies (baryons, CDM, photons, massless nu, 
 FieldEquations.h           the base; FieldEquation_GeneralRelativity.h, FieldEquation_DGP.h, FieldEquation_BransDicke.h
 BackgroundModel_<name>.h   one model each, its species and make_ function:
                            LCDM, w0wa, DGP, Quintessence (exponential, inverse power law, PNGB, hilltop), EDE,
-                           BransDicke, CoupledQuintessence, CubicGalileon, DarkScattering (wCDM), IDE,
+                           Axion (ultralight-axion dark matter, its own Component::Axions), BransDicke, CoupledQuintessence, CubicGalileon, DarkScattering (wCDM), IDE,
                            Tabulated (dark energy from a table of H(z) or w(a): make_tabulated_E, make_tabulated_w;
                            not in the registry, used by SimulationCode's Tabulated cosmology)
 Presets.h                  the registry (name, description, parameters with defaults and descriptions) and
                            make_background(name, params, model params): lcdm, w0wa, dgp, quintessence
-                           (_inverse_power_law, _pngb, _hilltop), ede, ede_zc, jbd, coupled_quintessence,
-                           cubic_galileon, dark_scattering, ide, musigma, fr, horndeski
+                           (_inverse_power_law, _pngb, _hilltop), ede, ede_zc, axion, jbd, coupled_quintessence,
+                           fading_dark_sector (= coupled_quintessence with lambda = c, beta = c'), cubic_galileon, dark_scattering, ide, musigma, fr, symmetron, dilaton, mbeta, horndeski,
+                           horndeski_table
+BackgroundModel_HorndeskiTable.h   horndeski_table: a reduced Horndeski theory from the table of
+                           SimulationCode/scripts/horndeski_frontend.py (BackgroundParameters::model_file): its H(a)
 ```
 
 Background only: models that only modify the perturbations (mu-Sigma, Hu-Sawicky f(R), Horndeski alphas) have the

@@ -8,7 +8,8 @@ namespace FML::SURVEY {
         double i2 = 0; // <=0: derive from random nbar.
         bool compensate_cic = true;
         bool subtract_shotnoise = true;
-        // Shot noise of the CIC-painted mesh including its aliased images (Jing 2005): the continuum value times
+        // Shot noise of the CIC-painted mesh including its aliased images (Jing 2005,
+        // https://doi.org/10.1086/427087): the continuum value times
         // prod_i [1 - 2/3 sin^2(k_i h/2)], divided by the CIC window^2 when compensating. false: the continuum
         // value, which after compensation is too small by 0.7% at k h = 1.5 along an axis (growing as (k h)^4),
         // and without compensation too large by 1 - prod_i [1 - 2/3 sin^2(k_i h/2)]
@@ -32,6 +33,39 @@ namespace FML::SURVEY {
                 throw std::invalid_argument(
                     "Survey multipoles must be distinct even orders within the supported range");
         }
+        // Fail collectively before rank-dependent FFT schedules or differently sized bin reductions.
+        inline void agree_power_options(const Geometry & g, const PowerOptions & o, bool shifted) {
+            std::vector<double> values{double(g.nmesh),
+                                       g.boxsize,
+                                       double(g.local_los),
+                                       o.i2,
+                                       double(o.compensate_cic),
+                                       double(o.subtract_shotnoise),
+                                       double(o.aliased_shotnoise),
+                                       double(shifted),
+                                       double(o.edges.size()),
+                                       double(o.ells.size())};
+            values.insert(values.end(), g.minimum.begin(), g.minimum.end());
+            values.insert(values.end(), g.observer.begin(), g.observer.end());
+            values.insert(values.end(), g.fixed_los.begin(), g.fixed_los.end());
+            values.insert(values.end(), o.edges.begin(), o.edges.end());
+            for (int ell : o.ells)
+                values.push_back(ell);
+            size_t lo = values.size(), hi = lo;
+            FML::MinOverTasks(&lo);
+            FML::MaxOverTasks(&hi);
+            require(lo == hi, "Survey power options have different lengths across MPI ranks");
+            bool finite = true;
+            for (double v : values)
+                finite = finite && std::isfinite(v);
+            require(finite, "Survey power options must be finite");
+#ifdef USE_MPI
+            auto lower = values, upper = values;
+            FML::MinArrayOverTasks(lower.data(), lower.size());
+            FML::MaxArrayOverTasks(upper.data(), upper.size());
+            require(lower == upper, "Survey power geometry/options differ across MPI ranks");
+#endif
+        }
         // A_l(k) = FFT[F(x) L_l(khat.los(x))], with F in weighted counts per cell.
         inline std::vector<Mesh>
         angular_transforms(const Mesh & field, const Geometry & g, const std::vector<int> & ells) {
@@ -40,7 +74,7 @@ namespace FML::SURVEY {
             std::vector<Mesh> output;
             std::vector<std::vector<double>> coefficients;
             for (auto ell : ells) {
-                output.emplace_back(g.nmesh, 0, 0);
+                output.push_back(FML::GRID::make_grid<Mesh>(g.nmesh, 0, 0, FML::domain));
                 output.back().set_grid_status_real(false);
                 output.back().fill_fourier_grid(Complex(0));
                 coefficients.push_back(legendre_coefficients(ell));
@@ -84,6 +118,7 @@ namespace FML::SURVEY {
                                         const Geometry & g,
                                         const PowerOptions & options,
                                         const std::vector<CatalogPoint> * shifted_randoms = nullptr) {
+        detail::agree_power_options(g, options, shifted_randoms != nullptr);
         g.validate();
         detail::validate_edges(options.edges);
         detail::validate_ells(options.ells, 4);

@@ -113,6 +113,10 @@ CASES = {
         fof_nmin_per_halo=10,
         pofk_multipole=True,
         bispectrum=True,
+        images=True,
+        images_fields=["density", "velocity_divergence"],
+        images_nmesh=32,
+        images_npy=True,
     ),
     # No COLA, Tassev time-stepping, logarithmic spacing, fixed amplitude + reversed phases,
     # a single total number of steps split over three outputs, transfer function input,
@@ -181,6 +185,7 @@ CASES = {
         gravity_model_symmetron_M=4.0,
         gravity_model_symmetron_exact_solution=True,
         gravity_model_screening=True,
+        gravity_model_screening_efficiency=1.0,
         gravity_model_screening_enforce_largescale_linear=False,
         gravity_model_screening_linear_scale_hmpc=0.1,
         multigrid_solver_residual_convergence=1e-7,
@@ -213,6 +218,7 @@ CASES = {
         gravity_model_screening=True,
         gravity_model_dgp_smoothing_filter="tophat",
         gravity_model_dgp_smoothing_scale_over_boxsize=0.0,
+        gravity_model_screening_efficiency=1.0,
         gravity_model_screening_enforce_largescale_linear=False,
         gravity_model_screening_linear_scale_hmpc=0.1,
         multigrid_solver_residual_convergence=1e-7,
@@ -240,6 +246,7 @@ CASES = {
         gravity_model_screening=True,
         gravity_model_dgp_smoothing_filter="tophat",
         gravity_model_dgp_smoothing_scale_over_boxsize=0.0,
+        gravity_model_screening_efficiency=1.0,
         gravity_model_screening_enforce_largescale_linear=True,
         gravity_model_screening_linear_scale_hmpc=0.1,
         multigrid_solver_residual_convergence=1e-4,
@@ -386,6 +393,226 @@ CASES = {
         cosmology_model="Tabulated",
         cosmology_tabulated_filename=INPUT + "/class_background_w0wa.dat",
         cosmology_tabulated_format="CLASS",
+    ),
+    # Dark matter - dark energy scattering: the velocity friction in the growth (COLA frame, IC) and in the time
+    # stepping (COLA + Quinn; no COLA + FastPM)
+    "dark_scattering_cola": dict(
+        cosmology_model="DarkScattering",
+        cosmology_ds_w=-0.9,
+        cosmology_ds_xi=50.0,
+        cosmology_ds_cs2=1.0,
+    ),
+    "dark_scattering_fastpm": dict(
+        cosmology_model="DarkScattering",
+        cosmology_ds_w=-0.9,
+        cosmology_ds_xi=50.0,
+        cosmology_ds_cs2=1.0,
+        simulation_use_cola=False,
+        timestep_method="FastPM",
+    ),
+    # Dark scattering with CDM and baryons as separate particles: the CDM has the friction, the baryons none (their
+    # own kick, drift and velocity scale; with COLA the correction of the frame's LPT velocity)
+    "dark_scattering_baryons_cola": dict(
+        cosmology_model="DarkScattering",
+        cosmology_ds_w=-0.9,
+        cosmology_ds_xi=50.0,
+        cosmology_ds_cs2=1.0,
+        particle_baryons=True,
+        particle_baryon_lattice="same",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/dark_scattering.txt",
+        ic_input_redshift=20.0,
+    ),
+    "dark_scattering_baryons_fastpm": dict(
+        cosmology_model="DarkScattering",
+        cosmology_ds_w=-0.9,
+        cosmology_ds_xi=50.0,
+        cosmology_ds_cs2=1.0,
+        particle_baryons=True,
+        particle_baryon_lattice="same",
+        simulation_use_cola=False,
+        timestep_method="FastPM",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/dark_scattering.txt",
+        ic_input_redshift=20.0,
+    ),
+    # The covariantised dark Thomson-like scattering (the drag alpha a^3 / (Omega_c E)): one fluid with COLA, and CDM
+    # and baryon particles with FastPM
+    "covariant_dark_scattering_cola": dict(
+        cosmology_model="CovariantDarkScattering",
+        cosmology_ds_w=-0.98,
+        cosmology_cds_alpha=1.0,
+        cosmology_ds_cs2=1.0,
+    ),
+    "covariant_dark_scattering_baryons_fastpm": dict(
+        cosmology_model="CovariantDarkScattering",
+        cosmology_ds_w=-0.98,
+        cosmology_cds_alpha=1.0,
+        cosmology_ds_cs2=1.0,
+        particle_baryons=True,
+        particle_baryon_lattice="same",
+        simulation_use_cola=False,
+        timestep_method="FastPM",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/covariant_dark_scattering.txt",
+        ic_input_redshift=20.0,
+    ),
+    # Coupled quintessence: the CDM+baryon particles as one fluid (G_eff, friction and the CDM mass of the coupling),
+    # and with CDM and baryon particles (the fifth force of the CDM on the CDM, the species' own steps)
+    "coupled_quintessence_cola": dict(
+        cosmology_model="CoupledQuintessence",
+        gravity_model="CoupledQuintessence",
+        cosmology_cq_lambda=0.5,
+        cosmology_cq_beta=0.15,
+    ),
+    "coupled_quintessence_baryons_cola": dict(
+        cosmology_model="CoupledQuintessence",
+        gravity_model="CoupledQuintessence",
+        cosmology_cq_lambda=0.5,
+        cosmology_cq_beta=0.15,
+        particle_baryons=True,
+        particle_baryon_lattice="same",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/coupled_quintessence.txt",
+        ic_input_redshift=20.0,
+    ),
+    "coupled_quintessence_baryons_fastpm": dict(
+        cosmology_model="CoupledQuintessence",
+        gravity_model="CoupledQuintessence",
+        cosmology_cq_lambda=0.5,
+        cosmology_cq_beta=0.15,
+        particle_baryons=True,
+        particle_baryon_lattice="same",
+        simulation_use_cola=False,
+        timestep_method="FastPM",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/coupled_quintessence.txt",
+        ic_input_redshift=20.0,
+    ),
+    # The Fading Dark Sector (arXiv:2611.17422; coupled quintessence with lambda = c, beta = c'), the paper's best fit:
+    # a potential growing with phi (c < 0), the CDM+baryon particles as one fluid
+    "fading_dark_sector_cola": dict(
+        cosmology_model="FadingDarkSector",
+        gravity_model="FadingDarkSector",
+        cosmology_fds_c=-0.85,
+        cosmology_fds_cprime=0.05,
+    ),
+    "fading_dark_sector_fastpm": dict(
+        cosmology_model="FadingDarkSector",
+        gravity_model="FadingDarkSector",
+        cosmology_fds_c=-0.85,
+        cosmology_fds_cprime=0.05,
+        simulation_use_cola=False,
+        timestep_method="FastPM",
+    ),
+    # Interacting dark energy: the CDM+baryon particles as one fluid with their own masses (the energy exchange with the
+    # change of their volume; the mass growth in the growth factors and the COLA frame), and CDM particles with
+    # masses and baryon particles (no COLA, Quinn)
+    "ide_cola": dict(
+        cosmology_model="IDE",
+        cosmology_ide_w=-0.9,
+        cosmology_ide_xi=-0.1,
+        cosmology_ide_cs2=1.0,
+    ),
+    "ide_baryons_quinn": dict(
+        cosmology_model="IDE",
+        cosmology_ide_w=-0.9,
+        cosmology_ide_xi=-0.1,
+        cosmology_ide_cs2=1.0,
+        particle_baryons=True,
+        particle_baryon_lattice="same",
+        simulation_use_cola=False,
+        timestep_method="Quinn",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/ide.txt",
+        ic_input_redshift=20.0,
+    ),
+    # The cubic Galileon (its tracker background and the force of the DGP form with r_c(a), beta(a)): the screening
+    # approximation with COLA, and the exact field equation (DGP's multigrid solver)
+    "cubic_galileon_cola": dict(
+        cosmology_model="CubicGalileon",
+        gravity_model="CubicGalileon",
+        gravity_model_cubic_galileon_exact_solution=False,
+        gravity_model_screening=True,
+        gravity_model_cubic_galileon_smoothing_filter="tophat",
+        gravity_model_cubic_galileon_smoothing_scale_over_boxsize=0.0,
+        gravity_model_screening_efficiency=1.0,
+        gravity_model_screening_enforce_largescale_linear=False,
+        gravity_model_screening_linear_scale_hmpc=0.1,
+    ),
+    "cubic_galileon_exact_multigrid": dict(
+        cosmology_model="CubicGalileon",
+        gravity_model="CubicGalileon",
+        gravity_model_cubic_galileon_exact_solution=True,
+        gravity_model_screening=True,
+        gravity_model_cubic_galileon_smoothing_filter="tophat",
+        gravity_model_cubic_galileon_smoothing_scale_over_boxsize=0.0,
+        gravity_model_screening_efficiency=1.0,
+        gravity_model_screening_enforce_largescale_linear=False,
+        gravity_model_screening_linear_scale_hmpc=0.1,
+        multigrid_solver_residual_convergence=1e-7,
+        multigrid_nsweeps=5,
+        multigrid_nsweeps_first_step=10,
+        multigrid_coarse_factor=1,
+    ),
+    # Generic reduced Horndeski from the tables of scripts/horndeski_frontend.py (input/horndeski): the cubic Galileon
+    # (cosmology_model = Horndeski with the IC of the internal solver's horndeski_table, the screening approximation
+    # with a Gaussian smoothing of the density; the exact equation on the Tabulated background) and Brans-Dicke (the
+    # Newtonian force rescaled by 1 / (2 G4) = 1/phi, no screening)
+    "horndeski_cubic_galileon_cola": dict(
+        cosmology_model="Horndeski",
+        cosmology_horndeski_filename=INPUT + "/horndeski/cubic_galileon_gravity.txt",
+        gravity_model="Horndeski",
+        gravity_model_horndeski_filename="",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/horndeski_cubic_galileon.txt",
+        ic_input_redshift=20.0,
+        gravity_model_horndeski_exact_solution=False,
+        gravity_model_screening=True,
+        gravity_model_horndeski_smoothing_filter="gaussian",
+        gravity_model_horndeski_smoothing_scale_over_boxsize=0.01,
+        gravity_model_screening_efficiency=1.0,
+        gravity_model_screening_enforce_largescale_linear=True,
+        gravity_model_screening_linear_scale_hmpc=0.1,
+    ),
+    "horndeski_cubic_galileon_exact_multigrid": dict(
+        cosmology_model="Tabulated",
+        cosmology_tabulated_filename=INPUT + "/horndeski/cubic_galileon_background.txt",
+        cosmology_tabulated_format="H",
+        gravity_model="Horndeski",
+        gravity_model_horndeski_filename=INPUT + "/horndeski/cubic_galileon_gravity.txt",
+        gravity_model_horndeski_exact_solution=True,
+        gravity_model_screening=True,
+        gravity_model_horndeski_smoothing_filter="gaussian",
+        gravity_model_horndeski_smoothing_scale_over_boxsize=0.0,
+        gravity_model_screening_efficiency=1.0,
+        gravity_model_screening_enforce_largescale_linear=False,
+        gravity_model_screening_linear_scale_hmpc=0.1,
+        multigrid_solver_residual_convergence=1e-7,
+        multigrid_nsweeps=5,
+        multigrid_nsweeps_first_step=10,
+        multigrid_coarse_factor=1,
+    ),
+    "horndeski_brans_dicke": dict(
+        cosmology_model="Horndeski",
+        cosmology_horndeski_filename=INPUT + "/horndeski/brans_dicke_gravity.txt",
+        gravity_model="Horndeski",
+        gravity_model_horndeski_filename="",
+        gravity_model_horndeski_exact_solution=False,
+        gravity_model_screening=False,
+    ),
+    # K-mouflage (n = 2, K0 = 1, beta = 0.2) in the Jordan frame as Hi-COLA (Sen Gupta, Fiorini & Baker 2024): the
+    # Newtonian force rescaled by A^2 and a linear fifth force (G3X = 0: no Vainshtein term); IC of horndeski_table
+    "horndeski_kmouflage_cola": dict(
+        cosmology_model="Horndeski",
+        cosmology_horndeski_filename=INPUT + "/horndeski/kmouflage_gravity.txt",
+        gravity_model="Horndeski",
+        gravity_model_horndeski_filename="",
+        ic_type_of_input="tables",
+        ic_input_filename=INPUT + "/transfer_tables/horndeski_kmouflage.txt",
+        ic_input_redshift=20.0,
+        gravity_model_horndeski_exact_solution=False,
+        gravity_model_screening=False,
     ),
     # CDM and baryons as separate particles (same lattice), BullFrog, IC from the transfer functions at zini
     "two_species_bullfrog": dict(
@@ -677,6 +904,11 @@ def lua_value(v):
 def write_case(outdir, name):
     params = dict(BASE)
     params.update(CASES[name])
+    # The IC-only axion parameters (read with ic_type_of_input = internal or tables; all parameters must be in the file)
+    if params.get("ic_type_of_input") in ("internal", "internal_transfer", "tables"):
+        params.setdefault("ic_axion_fraction", 0.0)
+        params.setdefault("ic_axion_log10_m", -22.0)
+        params.setdefault("ic_axion_switch_mH", 0.0)
     d = os.path.join(outdir, name)
     os.makedirs(d, exist_ok=True)
 

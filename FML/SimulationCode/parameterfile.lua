@@ -53,7 +53,8 @@ end
 ------------------------------------------------------------
 -- Choose the cosmology 
 ------------------------------------------------------------
--- Cosmology: LCDM, w0waCDM, DGP, JBD, Quintessence, EDE, Tabulated ... add your own ...
+-- Cosmology: LCDM, w0waCDM, DGP, JBD, Quintessence, EDE, DarkScattering, CovariantDarkScattering, CoupledQuintessence,
+-- FadingDarkSector, IDE, CubicGalileon, Horndeski, Tabulated ... add your own ...
 cosmology_model = "LCDM"
 --- CDM density
 cosmology_OmegaCDM = 0.2685
@@ -112,6 +113,50 @@ if cosmology_model == "EDE" then
   cosmology_ede_theta_ini = 2.8
   cosmology_ede_n = 3.0
 end
+if cosmology_model == "DarkScattering" then
+  -- Dark matter - dark energy scattering: wCDM with w = cosmology_ds_w and xi = sigma_D / m_c in barn/GeV
+  -- (a velocity friction of the dark matter); cs2 only for the IC from the internal solver
+  cosmology_ds_w = -0.9
+  cosmology_ds_xi = 10.0
+  cosmology_ds_cs2 = 1.0
+end
+if cosmology_model == "CovariantDarkScattering" then
+  -- The covariantised dark Thomson-like scattering Q^mu = alpha_bar (u_DE^mu - u_c^mu): wCDM with w = cosmology_ds_w and
+  -- the dark-matter drag alpha a^3 / (Omega_cdm E(a)) per ln a (alpha = 8 pi G alpha_bar / (3 H0^3)); cs2 only for
+  -- the IC from the internal solver
+  cosmology_ds_w = -0.98
+  cosmology_cds_alpha = 1.0
+  cosmology_ds_cs2 = 1.0
+end
+if cosmology_model == "CoupledQuintessence" then
+  -- A scalar field with V ~ exp(-lambda phi) coupled to the CDM (CDM mass ~ exp(-beta phi)): the background.
+  -- Needs gravity_model = "CoupledQuintessence" (the CDM feels G (1 + 2 beta^2) from the CDM and the velocity term
+  -- +beta phi' v)
+  cosmology_cq_lambda = 0.5
+  cosmology_cq_beta = 0.05
+end
+if cosmology_model == "FadingDarkSector" then
+  -- The Fading Dark Sector (Obied, Vafa & Wu, arXiv:2611.17422): V_DE ~ exp(-c phi), m_DM ~ exp(-c' phi). The same
+  -- model as CoupledQuintessence with lambda = c, beta = c'. Needs gravity_model = "FadingDarkSector" (or
+  -- "CoupledQuintessence"). The paper's best fit (CMB + DESI + DES-Dovekie):
+  cosmology_fds_c = -0.85
+  cosmology_fds_cprime = 0.05
+end
+if cosmology_model == "IDE" then
+  -- Interacting dark energy: the energy exchange Q = xi H rho_DE along the dark-matter 4-velocity (xi > 0: energy flows
+  -- to the dark matter), a dark energy with constant w. Needs xi / (3 (1 + w)) <= 0. The CDM particles carry their own
+  -- masses (they change with the volume of the particle); cs2 only for the IC from the internal solver
+  cosmology_ide_w = -0.9
+  cosmology_ide_xi = -0.1
+  cosmology_ide_cs2 = 1.0
+end
+-- CubicGalileon: the cubic Galileon on its tracker (no parameters; use it with gravity_model = "CubicGalileon")
+-- Horndeski: a reduced Horndeski theory (K(phi, X), G3(phi, X), G4(phi)) from the table of
+-- scripts/horndeski_frontend.py (made for the cosmology here: OmegaM, h, TCMB, Neff); use it with gravity_model =
+-- "Horndeski". The internal Einstein-Boltzmann solver (ic_type_of_input = "internal") has its alphas
+if cosmology_model == "Horndeski" then
+  cosmology_horndeski_filename = "input/horndeski/cubic_galileon_gravity.txt"
+end
 if cosmology_model == "Tabulated" then
   -- The background from a file: H (columns z, H/H0), CLASS (a CLASS background file) or w (columns a, w(a))
   cosmology_tabulated_filename = "input/class_background_w0wa.dat"
@@ -147,8 +192,12 @@ end
 ------------------------------------------------------------
 -- Choose the gravity model
 ------------------------------------------------------------
--- Gravity model: GR, f(R), DGP, JBD, Symmetron, Dilaton, mbeta, mu ... add your own ...
--- (JBD needs cosmology_model = "JBD": it takes phi(a) from the background)
+-- Gravity model: GR, f(R), DGP, CubicGalileon, Horndeski, JBD, Symmetron, Dilaton, mbeta, mu, CoupledQuintessence,
+-- FadingDarkSector ...
+-- add your own ...
+-- (JBD needs cosmology_model = "JBD": it takes phi(a) from the background; CoupledQuintessence goes together with
+-- cosmology_model = "CoupledQuintessence": the force and velocity term of the coupled CDM; FadingDarkSector is the
+-- same with cosmology_model = "FadingDarkSector")
 gravity_model = "GR"
 
 -- Poisson equation with G_eff/G = mu(a,k), no screening
@@ -318,6 +367,9 @@ if gravity_model == "DGP" then
   -- For screening approx: smoothing scale R/boxsize (0: no smoothing; 1 smooths over the whole box,
   -- which makes the screening very weak), e.g. 1.0 / simulation_boxsize for R = 1 Mpc/h
   gravity_model_dgp_smoothing_scale_over_boxsize = 0.0
+  -- Screening efficiency (1.0 is standard)
+  -- This can be used to increase or decrease the amount of screening if using gravity_model_screening
+  gravity_model_screening_efficiency = 1.0
   -- Combine screened solution with linear solution to enforce correct
   -- linear evolution on large scales
   gravity_model_screening_enforce_largescale_linear = true
@@ -334,11 +386,53 @@ if gravity_model == "DGP" then
   multigrid_nsweeps_first_step = 2
 end
 
--- The multigrid solver of the exact equations (f(R), Symmetron, Dilaton, DGP with *_exact_solution = true)
-if gravity_model_fofr_exact_solution or gravity_model_symmetron_exact_solution or gravity_model_dilaton_exact_solution or gravity_model_dgp_exact_solution then
+-- The cubic Galileon (needs cosmology_model = "CubicGalileon"): the DGP equation with the Galileon's r_c(a), beta(a)
+if gravity_model == "CubicGalileon" then
+  -- Solve the exact equation with DGP's multigrid solver (slow and mainly for testing)
+  gravity_model_cubic_galileon_exact_solution = false
+  -- Approximate screening model (otherwise linear)
+  gravity_model_screening = true
+  -- For screening approx: smoothing filter for density (tophat, gaussian, sharpk) and the smoothing scale R/boxsize
+  gravity_model_cubic_galileon_smoothing_filter = "tophat"
+  gravity_model_cubic_galileon_smoothing_scale_over_boxsize = 0.0
+  gravity_model_screening_efficiency = 1.0
+  gravity_model_screening_enforce_largescale_linear = true
+  gravity_model_screening_linear_scale_hmpc = 0.1
+  -- Options for the multigrid solver in case we solve exact equation:
+  multigrid_solver_residual_convergence = 1e-5
+  multigrid_nsweeps = 3
+  multigrid_nsweeps_first_step = 20
+end
+
+-- Generic reduced Horndeski (K(phi, X), G3(phi, X), G4(phi)): the table of scripts/horndeski_frontend.py. Use it with
+-- cosmology_model = "Horndeski" (or "Tabulated" with cosmology_tabulated_format = "H" and the frontend's
+-- _background.txt)
+if gravity_model == "Horndeski" then
+  -- The table ("": that of cosmology_model = "Horndeski")
+  gravity_model_horndeski_filename = ""
+  -- Solve the exact equation with DGP's multigrid solver (slow and mainly for testing; needs r_c^2 > 0)
+  gravity_model_horndeski_exact_solution = false
+  -- Approximate screening model (otherwise linear)
+  gravity_model_screening = true
+  gravity_model_horndeski_smoothing_filter = "gaussian"
+  gravity_model_horndeski_smoothing_scale_over_boxsize = 0.0
+  gravity_model_screening_efficiency = 1.0
+  gravity_model_screening_enforce_largescale_linear = true
+  gravity_model_screening_linear_scale_hmpc = 0.1
+  multigrid_solver_residual_convergence = 1e-5
+  multigrid_nsweeps = 3
+  multigrid_nsweeps_first_step = 20
+end
+
+-- The multigrid solver of the exact equations (f(R), Symmetron, Dilaton, DGP, CubicGalileon, Horndeski with
+-- *_exact_solution = true)
+if gravity_model_fofr_exact_solution or gravity_model_symmetron_exact_solution or gravity_model_dilaton_exact_solution or gravity_model_dgp_exact_solution or gravity_model_cubic_galileon_exact_solution or gravity_model_horndeski_exact_solution then
   -- Converged when the rms residual is below multigrid_solver_residual_convergence (residual) or below it times
   -- the rms of the linear source of the equation (relative; the residual scale changes a lot during a simulation)
   multigrid_convergence_criterion = "residual"
+  if gravity_model == "CubicGalileon" or gravity_model == "Horndeski" then
+    multigrid_convergence_criterion = "relative"
+  end
   -- Solve the field equation on a grid coarser by this factor than the force grid (1: the force grid)
   multigrid_coarse_factor = 1
   -- With multigrid_coarse_factor > 1: the density on the coarse grid is its Fourier modes below the coarse
@@ -435,7 +529,7 @@ ic_random_field_type = "gaussian"
 -- The grid-size used to generate the IC
 ic_nmesh = particle_Npart_1D
 -- Offset of the particle lattice from the force grid nodes: fiducial (half a force-grid cell if
--- force_nmesh > particle_Npart_1D, see README), none, half_force_cell
+-- force_nmesh > particle_Npart_1D, see EVOLUTION.md), none, half_force_cell
 ic_lattice_offset = "fiducial"
 -- For MG: input LCDM P(k) and use GR to scale back and ensure same IC as for LCDM
 -- ONLY use this if you don't have the P(k) for the MG model or if you want to consider PMG/PLCDM run with same IC at high z
@@ -456,8 +550,13 @@ ic_LPT_order = 2
 ic_type_of_input = "powerspectrum"
 ic_input_gauge = "synchronous" -- class: the gauge CLASS was run in (synchronous or newtonian; converted to CDM-synchronous)
 -- internal: settings of the solver as "name=value", e.g. {"Yp=0.245", "z_reion=8", "precision=fast"}
--- (not the cosmology or the k-range, which are the simulation's; see README.md)
+-- (not the cosmology or the k-range, which are the simulation's; see INITIAL_CONDITIONS.md)
 ic_internal_solver_parameters = {}
+-- internal / tables: ultralight axions in the IC only (the share ic_axion_fraction of the dark matter is an axion of
+-- 10^ic_axion_log10_m eV in the transfer functions; the simulation is LCDM; 0 = off; see INITIAL_CONDITIONS.md)
+ic_axion_fraction = 0.0
+ic_axion_log10_m = -22.0
+ic_axion_switch_mH = 0.0
 -- Path to the input (NB: for using the example files update the path at the top of the file below;
 -- internal: an optional .ini file of the solver, "" for its defaults (internal_solver_default.ini lists the
 -- settings that are yours, with their defaults: copy it and change what you need); tables: the file)
@@ -526,7 +625,7 @@ force_greens_function_kernel = "fiducial"
 force_gradient_kernel = "fiducial"
 -- Experimental: how the density for the force is computed: assignment (default), nufft (exact Fourier
 -- modes, no window/aliasing; then the force is also evaluated exactly at the particles), sheet or
--- sheet_nufft (spectral sheet interpolation with force_sheet_refinement^3 tracers per particle). See README
+-- sheet_nufft (spectral sheet interpolation with force_sheet_refinement^3 tracers per particle). See EVOLUTION.md
 force_density_method = "assignment"
 if force_density_method == "sheet" or force_density_method == "sheet_nufft" then
   -- The number of tracers per particle per dimension
@@ -537,11 +636,11 @@ end
 -- nufft, otherwise assignment)
 force_interpolation_method = "fiducial"
 -- Experimental: force interlacing (average the force over this many shifted grids; 1 = off) and deconvolution
--- of the assignment window W(k)^2 (only stable with interlacing). See README
+-- of the assignment window W(k)^2 (only stable with interlacing). See EVOLUTION.md
 force_interlacing_order = 1
 force_deconvolve_window = false
 -- Experimental: a more accurate force at early times (nufft or interlaced) for z > force_early_until_redshift
--- (only for force_nmesh = particle_Npart_1D). See README
+-- (only for force_nmesh = particle_Npart_1D). See EVOLUTION.md
 force_early_method = "none"
 if force_early_method == "nufft" or force_early_method == "interlaced" then
   force_early_until_redshift = 10.0
@@ -692,6 +791,31 @@ fof_massfunction_Mmax = 1e16
 -- (<Delta>m: Delta times the mean CDM+baryon density, <Delta>c: times the critical density,
 -- vir: Bryan & Norman 1998). Empty: none. The spheres must fit in fof_buffer_length_mpch
 fof_so_definitions = {}
+-- Relaxed FoF instead of standard FoF (Dai et al. 2019, as FastPM's RFOF; see FriendsOfFriends/RelaxedFoF.md):
+-- a longer linking length for small halos (better halos in low-resolution simulations) and rejection of fake
+-- halos by their velocity dispersion. fof_linking_length and fof_nmin_per_halo are then not used
+fof_relaxed = false
+if fof_relaxed then
+  -- fastpm: the halo bins only (as FastPM); paper: then shorter linking lengths for rejected halos (Algorithm 1)
+  fof_relaxed_mode = "fastpm"
+  -- Linking lengths (units of the mean separation): l1 - a1/(1+z) for the smallest halos, max(l6 - a2/(1+z),
+  -- fof_relaxed_linking_length_min) for the largest, linear in the bin in between. FastPM's defaults are fitted
+  -- to TNG300-2-Dark for FastPM with a mean separation of 0.3 Mpc/h and 40 steps: refit for other setups
+  fof_relaxed_l1 = 0.25
+  fof_relaxed_a1 = 0.012
+  fof_relaxed_l6 = 0.24
+  fof_relaxed_a2 = 0.06
+  fof_relaxed_linking_length_min = 0.2
+  -- Upper edges of the halo bins (particles) and the minimum halo size
+  fof_relaxed_bin_edges = {20, 40, 80, 160, 320}
+  fof_relaxed_nmin = 8
+  -- Reject halos with sigma_v(3D) > r0(z) * 1100 km/s (E(z) M / 1e15 Msun/h)^(1/3), r0 = b1 - b2 ln(1+z)
+  -- (with the defaults r0 <= 0, i.e. all halos rejected, for z > 2.2; fof_relaxed_r0_min sets a floor)
+  fof_relaxed_velocity_rejection = true
+  fof_relaxed_b1 = 7.02
+  fof_relaxed_b2 = 6.025
+  fof_relaxed_r0_min = 0.0
+end
 
 ------------------------------------------------------------
 -- Baryonification (snapshot post-processing)
@@ -789,8 +913,36 @@ bispectrum_nbins = 10
 bispectrum_interlacing = true
 -- Subtract shotnoise?
 bispectrum_subtract_shotnoise = false
+-- Weight the Fourier cells by their volume overlap with the k-shells (continuous
+-- shells, as in CONCEPT) instead of 0/1 from where the cell centre is
+bispectrum_shell_overlap_weights = false
 -- Density assignment method: NGP, CIC, TSC, PCS, PQS
 bispectrum_density_assignment_method = "PCS"
+
+------------------------------------------------------------
+-- Images: PNG pictures of fields at every output, image_<field>_z<z>.png
+-- in the snapshot folder (see ANALYSIS.md). A slab of the field
+-- projected along an axis (the mean over the slab)
+------------------------------------------------------------
+-- Draw the images when we output?
+images = false
+-- The fields: density, velocity_divergence, baryons_minus_cdm (particle_baryons),
+-- neutrinos (neutrino particles or linear neutrinos), fifth_force (|F_5th| / |F_Newton|)
+images_fields = {"density"}
+-- Grid size of the fields and pixels per side of the images (0: the grid size)
+images_nmesh = 256
+images_npix = 0
+-- Projected along this axis (0, 1, 2), the slab centre and thickness in units of the box (1: the whole box)
+images_axis = 2
+images_slab_center = 0.5
+images_slab_thickness = 0.1
+-- Density assignment method: NGP, CIC, TSC, PCS, PQS
+images_density_assignment_method = "CIC"
+-- Colour map for all fields (magma, inferno, viridis, plasma, cividis, coolwarm, grey, cubehelix; _r
+-- reverses). "": each field its own
+images_colormap = ""
+-- Also write the projected values as .npy files (for numpy)
+images_npy = false
 
 ------------------------------------------------------------
 -- Hybrid bias (Lagrangian bias basis) spectra
@@ -804,6 +956,10 @@ bispectrum_density_assignment_method = "PCS"
 hybridbias = false
 -- Gridsize for the advected fields
 hybridbias_nmesh = 128
+-- Also write the linear field of the IC (real space, at ic_initial_redshift) to
+-- output_folder/hybridbias_linear_field_<simulation_name>.dat, so the SnapshotAnalyzer can
+-- measure the hybrid bias spectra of the snapshots later (hybridbias_linear_field_source = "file")
+hybridbias_output_linear_field = false
 -- Number of operators: 5 gives (1, delta, delta^2, s^2, nabla^2 delta) and 15 spectra
 hybridbias_noperators = 5
 -- Use interlaced grids for alias reduction?

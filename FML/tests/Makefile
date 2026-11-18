@@ -11,16 +11,17 @@ USE_FFTW            ?= true
 USE_GSL             ?= true
 USE_LUA             ?= true
 
-TARGETS := test_core test_mpi_counts test_grid_tools test_fof test_so test_so_multislab test_fnl test_kdtree test_paircount test_survey test_pofk test_reconstruction test_multigrid test_hybridbias test_sphericalcollapse test_halomodel test_gadget test_ramses test_camb test_numcore test_fftlog test_emulator test_utils test_interpolation test_grids test_particles test_lpt test_nbody
+TARGETS := test_core test_mpi_counts test_grid_tools test_fof test_so test_so_multislab test_fnl test_kdtree test_paircount test_survey test_pofk test_reconstruction test_multigrid test_hybridbias test_hybridbias_rsd test_sphericalcollapse test_screened_collapse test_halomodel test_halomodel_reaction test_gadget test_ramses test_camb test_numcore test_fftlog test_emulator test_utils test_interpolation test_grids test_particles test_domain test_lpt test_nbody
 TARGETS += test_baryonification test_numericalmethods test_interlacing_offset test_streamed_kick test_lightcone test_random_fields test_timestepping test_transfers
-TARGETS += test_fourier_resampling test_testhelpers
+TARGETS += test_fourier_resampling test_testhelpers test_review_fixes
+TARGETS += test_four_point
 TARGETS += test_cosmicweb test_short_range test_yukawa test_phase_space_halos test_control test_morphology test_environment test_pt_direct test_halo_history
 
 include ../Makefile.config
 
 ifeq ($(USE_FFTW),true)
-TARGETS += test_spectra test_perturbation
-all: test_spectra test_perturbation
+TARGETS += test_spectra test_perturbation test_four_point_fourier test_distributed_deposit
+all: test_spectra test_perturbation test_four_point_fourier test_distributed_deposit
 endif
 
 ifeq ($(USE_LUA),true)
@@ -42,7 +43,8 @@ INTERNAL_COSMO_OBJS := $(filter-out Spline.o ODESolver.o,$(COSMO_OBJS))
 MODULE_TEST_SOURCES := Baryonification/tests/test_baryonification Baryonification/tests/test_baryonification_odr \
                        ShortRangeGravity/tests/test_short_range ShortRangeGravity/tests/test_yukawa \
                        PhaseSpaceHaloFinder/tests/test_phase_space_halos EnsembleStatistics/tests/test_control \
-                       EnsembleStatistics/tests/test_spectra Morphology/tests/test_morphology
+                       EnsembleStatistics/tests/test_spectra Morphology/tests/test_morphology \
+                       ConnectedFourPoint/tests/test_four_point ConnectedFourPoint/tests/test_four_point_fourier
 define module_test_object
 $(notdir $(1)).o: $(FML_ROOT)/$(1).cpp
 	$$(CC) $$(DEPFLAGS) -c -o $$@ $$< $$(OPTIONS) $$(INC)
@@ -63,6 +65,9 @@ test_timestepping: test_timestepping.o TransferInput.o $(INTERNAL_COSMO_OBJS) Gl
 test_fourier_resampling: test_fourier_resampling.o Global.o
 	$(LINK_EXE)
 
+test_review_fixes: test_review_fixes.o Global.o
+	$(LINK_EXE)
+
 test_random_fields: test_random_fields.o TransferInput.o $(INTERNAL_COSMO_OBJS) Global.o Spline.o ODESolver.o ParameterMap.o FileUtils.o
 	$(LINK_EXE)
 
@@ -76,6 +81,12 @@ test_mpi_counts: test_mpi_counts.o Global.o
 	$(LINK_EXE)
 
 test_grid_tools: test_grid_tools.o Global.o
+	$(LINK_EXE)
+
+test_four_point: test_four_point.o Global.o
+	$(LINK_EXE)
+
+test_four_point_fourier: test_four_point_fourier.o Global.o
 	$(LINK_EXE)
 
 test_control: test_control.o Global.o
@@ -174,18 +185,33 @@ test_pofk: $(POFK_OBJS)
 test_sphericalcollapse: test_sphericalcollapse.o Global.o Spline.o ODESolver.o Math.o SphericalCollapse.o SphericalCollapseModel.o
 	$(LINK_EXE)
 
+test_screened_collapse: test_screened_collapse.o Global.o Spline.o ODESolver.o Math.o SphericalCollapse.o SphericalCollapseModel.o ScreenedSphericalCollapse.o
+	$(LINK_EXE)
+
+# Halo-model reaction (reads the ReACT references in reference/react)
+test_halomodel_reaction: test_halomodel_reaction.o Global.o Spline.o ODESolver.o Math.o SphericalCollapse.o SphericalCollapseModel.o ScreenedSphericalCollapse.o HaloModelReaction.o HaloModelTools.o
+	$(LINK_EXE)
+
 # Halo model (reads the linear P(k) and the HMCode reference in ../HaloModel/example)
-test_halomodel: test_halomodel.o Global.o Spline.o ODESolver.o Math.o SphericalCollapse.o SphericalCollapseModel.o Halomodel.o FileUtils.o
+test_halomodel: test_halomodel.o Global.o Spline.o ODESolver.o Math.o SphericalCollapse.o SphericalCollapseModel.o Halomodel.o HaloModelTools.o FileUtils.o
 	$(LINK_EXE)
 
 # Reconstruction, Hessian (GSL eigensolver) and smoothing
 test_reconstruction: test_reconstruction.o Global.o Spline.o ODESolver.o
 	$(LINK_EXE)
 
+# The RSD reconstruction on pencils
+test_reconstruction_pencil: test_reconstruction_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
 test_multigrid: test_multigrid.o Global.o
 	$(LINK_EXE)
 
 test_hybridbias: test_hybridbias.o Global.o Spline.o
+	$(LINK_EXE)
+
+# The hybrid bias spectra in redshift space: cross multipoles, measurement and Zel'dovich / one-loop predictions
+test_hybridbias_rsd: test_hybridbias_rsd.o Global.o Spline.o
 	$(LINK_EXE)
 
 # GadgetUtils (binary GADGET format; the HDF5 part only with USE_HDF5=true)
@@ -242,6 +268,10 @@ test_grids: test_grids.o Global.o
 test_particles: test_particles.o Global.o
 	$(LINK_EXE)
 
+# Domain and MPIParticles with Slab, Pencil and Peano-Hilbert domains
+test_domain: test_domain.o Global.o
+	$(LINK_EXE)
+
 # LPT displacement fields and random fields
 test_lpt: test_lpt.o test_lpt_odr.o Global.o Spline.o ODESolver.o
 	$(LINK_EXE)
@@ -290,6 +320,10 @@ run: $(TARGETS)
 	  OMP_NUM_THREADS=2 $(RUN) ./test_yukawa; \
 	  echo "== Running test_short_range with $$np task(s)"; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_short_range; \
+	  OMP_NUM_THREADS=2 $(RUN) ./test_four_point; \
+	  $(if $(filter true,$(USE_FFTW)),OMP_NUM_THREADS=2 $(RUN) ./test_four_point_fourier,:); \
+	  $(if $(filter true,$(USE_FFTW)),echo "== Running test_distributed_deposit with $$np task(s)",:); \
+	  $(if $(filter true,$(USE_FFTW)),OMP_NUM_THREADS=2 $(RUN) ./test_distributed_deposit,:); \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_control; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_morphology; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_environment; \
@@ -319,8 +353,6 @@ run: $(TARGETS)
 	  OMP_NUM_THREADS=2 $(RUN) ./test_reconstruction; \
 	  echo "== Running test_multigrid with $$np task(s)"; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_multigrid; \
-	  echo "== Running test_sphericalcollapse with $$np task(s)"; \
-	  OMP_NUM_THREADS=2 $(RUN) ./test_sphericalcollapse; \
 	  echo "== Running test_halomodel with $$np task(s)"; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_halomodel; \
 	  echo "== Running test_gadget with $$np task(s)"; \
@@ -345,6 +377,8 @@ run: $(TARGETS)
 	  OMP_NUM_THREADS=2 $(RUN) ./test_grids; \
 	  echo "== Running test_particles with $$np task(s)"; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_particles; \
+	  echo "== Running test_domain with $$np task(s)"; \
+	  OMP_NUM_THREADS=2 $(RUN) ./test_domain; \
 	  echo "== Running test_lpt with $$np task(s)"; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_lpt; \
 	  echo "== Running test_transfers with $$np task(s)"; \
@@ -362,9 +396,15 @@ run: $(TARGETS)
 	  OMP_NUM_THREADS=2 $(RUN) ./test_streamed_kick; \
 	  echo "== Running test_baryonification with $$np task(s)"; \
 	  OMP_NUM_THREADS=2 $(RUN) ./test_baryonification; \
+	  echo "== Running test_hybridbias_rsd with $$np task(s)"; \
+	  OMP_NUM_THREADS=2 $(RUN) ./test_hybridbias_rsd; \
 	done
 	@echo "== Running test_hybridbias"
 	@OMP_NUM_THREADS=2 $(RUN1) ./test_hybridbias
+	@# Serial code (no MPI): the same on any number of tasks, so run once
+	@for t in test_sphericalcollapse test_screened_collapse test_halomodel_reaction; do \
+	  echo "== Running $$t (serial code: one task)"; OMP_NUM_THREADS=2 $(RUN1) ./$$t || exit 1; \
+	done
 	@echo "== Checking that bad input aborts with a clear message"
 	@! $(RUN1) ./test_core alloc > alloc.log 2>&1 && grep -q "Reached allocation limit" alloc.log && echo "[PASS] allocation limit aborts"
 ifeq ($(USE_MPI),true)
@@ -378,8 +418,12 @@ endif
 	  ! $(RUN1) ./test_nbody $${m%%:*} > nbody.log 2>&1 && grep -qF "$${m#*:}" nbody.log && echo "[PASS] test_nbody $${m%%:*} gives an error" || exit 1; \
 	done; rm -f nbody.log
 	@! $(RUN1) ./test_interpolation unknown > interp.log 2>&1 && grep -qF "Unknown density assignment method" interp.log && echo "[PASS] test_interpolation unknown method gives an error"
+	@! $(RUN1) ./test_interpolation zero > interp.log 2>&1 && grep -qF "No particles" interp.log && echo "[PASS] test_interpolation no particles gives an error"
 ifeq ($(USE_MPI),true)
 	@! $(MPIRUN) -np 4 ./test_interpolation thin > interp.log 2>&1 && grep -qF "Fewer slices on a task" interp.log && echo "[PASS] test_interpolation too thin slabs give an error"
+	@for m in outside outside_interp; do \
+	  ! $(MPIRUN) -np 2 ./test_interpolation $$m > interp.log 2>&1 && grep -qF "cells outside the local domain" interp.log && echo "[PASS] test_interpolation $$m: a particle outside its slab gives an error" || exit 1; \
+	done
 endif
 	@rm -f interp.log
 	@! $(RUN1) ./test_interlacing_offset negative > offset.log 2>&1 && grep -qF "Assignment offsets must be" offset.log && echo "[PASS] negative assignment offset gives an error"
@@ -396,3 +440,111 @@ endif
 	@for m in "spline_npts:needs at least 3 points" "spline2d_deriv:eval_deriv] (2,1)" "spline2d_monotone:is not monotone" "ode_nojacobian:requires the jacobian"; do \
 	  ! $(RUN1) ./test_numcore $${m%%:*} > numcore.log 2>&1 && grep -qF "$${m#*:}" numcore.log && echo "[PASS] test_numcore $${m%%:*} gives an error" || exit 1; \
 	done; rm -f numcore.log
+
+# The grid interface
+test_grid_generic: test_grid_generic.o PencilGrid.o Global.o Spline.o ODESolver.o
+	$(LINK_EXE)
+vpath PencilGrid.cpp $(FML_ROOT)/PencilDomain
+
+# FoF on a domain
+test_fof_domain: test_fof_domain.o Global.o
+	$(LINK_EXE)
+
+# The Delaunay tessellation on a domain (USE_CGAL=true; 2D: CGAL2D=true)
+ifeq ($(CGAL2D),true)
+test_delaunay_domain.o: OPTIONS += -DCGAL_NDIM=2
+endif
+test_delaunay_domain: test_delaunay_domain.o Global.o
+	$(LINK_EXE)
+
+# The DTFE on pencils (USE_CGAL=true)
+test_dtfe_pencil: test_dtfe_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The multigrid solver on a domain
+test_multigrid_domain: test_multigrid_domain.o Global.o
+	$(LINK_EXE)
+
+# The NUFFT on pencils
+test_nufft_domain: test_nufft_domain.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The screened modified gravity solvers on pencils
+test_screened_pencil: test_screened_pencil.o PencilGrid.o Global.o Spline.o ODESolver.o
+	$(LINK_EXE)
+
+# LPT, Hessian and smoothing on pencils
+test_lpt_pencil: test_lpt_pencil.o PencilGrid.o Global.o Spline.o ODESolver.o
+	$(LINK_EXE)
+
+# The polyspectra on pencils
+test_spectra_pencil: test_spectra_pencil.o PencilGrid.o Global.o Spline.o ODESolver.o
+	$(LINK_EXE)
+
+# Interlacing and deconvolution on pencils
+test_interp_pencil: test_interp_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# Per-cell data with ghost layers (GhostedCells) on slabs and pencils
+test_ghosted_cells: test_ghosted_cells.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The voxel void finder on pencils
+test_voids_pencil: test_voids_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The voxel morphology on pencils
+test_morphology_pencil: test_morphology_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# SPH on pencils
+test_sph_pencil: test_sph_pencil.o Global.o
+	$(LINK_EXE)
+
+# The cosmic web on pencils
+test_cosmicweb_pencil: test_cosmicweb_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The hybrid bias spectra and linear field files on pencils
+test_hybridbias_pencil: test_hybridbias_pencil.o PencilGrid.o Global.o Spline.o ODESolver.o
+	$(LINK_EXE)
+
+# Sheet interpolation on pencils
+test_sheet_pencil: test_sheet_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# PencilGrid checkpoints
+test_pencil_checkpoint: test_pencil_checkpoint.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The RAMSES reader on pencils
+test_ramses_pencil: test_ramses_pencil.o Global.o
+	$(LINK_EXE)
+
+# Random fields on pencils
+test_random_pencil: test_random_pencil.o PencilGrid.o Global.o Spline.o ODESolver.o
+	$(LINK_EXE)
+
+# The complex-to-complex grids (CFFTWGrid, CPencilGrid)
+test_complex_grids: test_complex_grids.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The arbitrary order LPT on pencils
+test_eds_lpt_pencil: test_eds_lpt_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# Glass ICs on pencils
+test_glass_pencil: test_glass_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The FieldLevel distributed assignment on pencils
+test_assignment_pencil: test_assignment_pencil.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# Density assignment from particles on any domain (Peano-Hilbert, ...) to slabs and pencils
+test_distributed_deposit: test_distributed_deposit.o PencilGrid.o Global.o
+	$(LINK_EXE)
+
+# The particle buffers (short-range ghosts, record ghosts, FoF, SO) on pencils
+test_ghosts_pencil: test_ghosts_pencil.o Global.o
+	$(LINK_EXE)
