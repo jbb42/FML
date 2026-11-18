@@ -270,21 +270,23 @@ def overview_dots(pdf, z):
     fig.subplots_adjust(left=0.13, right=0.99, top=0.83, bottom=0.09, wspace=0.08)
     for ax, (title, lo, hi) in zip(axes, RANGES):
         N = np.array([noise(z, m, lo, hi) for m, _, _ in ms])
+        ax.axvspan(0.05, N.max(), color="#ecebe6", lw=0, zorder=0)
         ax.axvspan(N.min(), N.max(), color=NOISE_COLOUR, lw=0, zorder=0)
-        ax.axvspan(0.03, N.min(), color="#efeeea", lw=0, zorder=0)
+        ax.text(np.sqrt(0.05 * N.max()), -0.9, "drowned in noise", ha="center", va="center", fontsize=8.5,
+                color=MUTED, style="italic")
         for (name, labels), y in zip(rows, ypos):
             E = np.array([max(effect(z, l, m, lo, hi) for l in labels) for m, _, _ in ms])
             ax.plot([E.min(), E.max()], [y, y], color=MUTED, lw=1.2, zorder=1)
             for (m, a, n), e in zip(ms, E):
-                ax.plot(e, y, "o" if a > 0 else "s", ms=6.5, color=N_COLOURS[n], mec="white", mew=1.2, zorder=2)
-            ax.text(min(E.max() * 1.25, 80), y, f"{E.max():.1f}", va="center", fontsize=8, color=INK)
+                ax.plot(e, y, "o" if a > 0 else "s", ms=8, color=N_COLOURS[n], mec="white", mew=1.2, zorder=2)
+            ax.text(min(E.max() * 1.3, 40), y, f"{E.max():.1f}%", va="center", fontsize=8.5, color=INK)
         ax.axhline(len(PARAMS) - 0.1, color=GRID, lw=1)
-        _style(ax)
-        ax.set_title(title, fontsize=11, color=INK, loc="left")
+        _style(ax, (0.05, 60))
+        ax.set_ylim(len(PARAMS) + 0.8 + len(JOINT) - 0.4, -1.4)
+        ax.set_title(title, fontsize=11.5, color=INK, loc="left")
         ax.set_xlabel("change of D, % of its size (log scale)", color=MUTED, fontsize=9)
     axes[0].set_yticks(ypos)
     axes[0].set_yticklabels([r[0] for r in rows], fontsize=10, color=INK)
-    axes[0].invert_yaxis()
     handles = [matplotlib.lines.Line2D([], [], ls="", marker="o", ms=7, color=N_COLOURS[n], label=f"n = {n:g}")
                for n in sorted(N_COLOURS)]
     handles += [matplotlib.lines.Line2D([], [], ls="", marker="o", ms=7, color=MUTED, label="A > 0"),
@@ -327,7 +329,7 @@ def all_spectra_dots(pdf, z):
                 vals.append(E)
                 nzs.append(Nz)
             ax.plot([min(vals), max(vals)], [r, r], color=GRID, lw=1.2, zorder=1)
-            ax.plot([nzs[2], nzs[2]], [r - 0.35, r + 0.35], color="#a8a7a2", lw=2.5, zorder=1)
+            ax.fill_betweenx([r - 0.5, r + 0.5], 0.03, nzs[2], color="#e3e2dc", lw=0, zorder=0)
             for c, v in zip(SCALE_COLOURS, vals):
                 ax.plot(v, r, "o", ms=5, color=c, mec="white", mew=0.8, zorder=2)
         _style(ax, (0.03, 60))
@@ -337,12 +339,12 @@ def all_spectra_dots(pdf, z):
         ax.set_title(rf"${names[i]} \times {names[j]}$", fontsize=10, color=INK, pad=3)
     handles = [matplotlib.lines.Line2D([], [], ls="", marker="o", ms=7, color=c, label=t.split(",")[0] + ":" +
                                        t.split(",")[1]) for c, (t, _, _) in zip(SCALE_COLOURS, RANGES)]
-    handles.append(matplotlib.lines.Line2D([], [], color="#a8a7a2", lw=2.5, label="noise of one run (small scales)"))
+    handles.append(matplotlib.patches.Patch(color="#e3e2dc", label="drowned in the noise of one run (small scales)"))
     fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.06, 0.08), ncol=1, frameon=False, fontsize=10)
     fig.suptitle(f"All 15 spectra: change of the mu - GR change D per parameter (+-5 sigma), z = {z:g}", x=0.01,
                  ha="left", fontsize=14, color=INK, y=0.985)
     fig.text(0.01, 0.94, "x: change of D in % of its size (log scale), worst of -5 / +5 sigma and of the 7 gravity models. "
-             "A dot left of the grey tick is drowned in the noise of one run. Joint extremes: pages 1-2.",
+             "Dots in the grey area are drowned in the noise of one run. Joint extremes: pages 1-2.",
              fontsize=9.5, color=MUTED)
     pdf.savefig(fig)
     plt.close(fig)
