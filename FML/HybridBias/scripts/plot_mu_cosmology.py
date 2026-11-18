@@ -11,6 +11,8 @@ against another, divided by sqrt(2) (the noise of one run).
 Writes figures/mu_boost/cosmology.pdf:
   page 1-2  overview (z = 0, z = 1): parameters x gravity models, colour = effect / noise (relevance), number = effect
             in %; large (k < 0.3), intermediate (0.3 < k < 0.6) and small scales (0.6 < k < 1)
+  page 5-6  all 15 spectra (z = 0, z = 1): rows = parameters and joint extremes, columns = spectra, per spectrum
+            the worst gravity model; colour and number = effect in %, (number) = within the noise
   page 3-4  k dependence (z = 0, z = 1): rows = parameters, columns = main spectra; signed effect
             (D_hi - D_lo) / 2 in % of max|D_fid| per model (colour: n, solid: A > 0, dashed: A < 0), grey: +-noise
     python3 scripts/plot_mu_cosmology.py
@@ -166,6 +168,76 @@ def kdependence(pdf, z):
     plt.close(fig)
 
 
+_DCACHE = {}
+
+
+def D_cached(z, label, model):
+    key = (z, label, model)
+    if key not in _DCACHE:
+        A.Z = z
+        _DCACHE[key] = A.D(label, model)
+    return _DCACHE[key]
+
+
+OPNAMES = [r"1", r"\delta", r"\delta^2", r"s^2", r"\nabla^2\delta"]
+
+
+def all_spectra(pdf, z):
+    """All 15 spectra: rows = parameters and joint extremes, columns = spectra; per spectrum, the worst gravity model.
+    Colour: effect / noise (both for that spectrum); number: effect in % of max|D_fid| of that spectrum."""
+    ms = [m for m, _, _ in models()]
+    rows = [(name, [lo_l, hi_l]) for name, lo_l, hi_l in PARAMS] + [(name, [l]) for name, l in JOINT]
+    seeds = ("fiducial_s1002", "fiducial_s1003")
+    fig, axes = plt.subplots(len(RANGES), 1, figsize=(16, 22))
+    fig.subplots_adjust(left=0.13, right=0.92, top=0.94, bottom=0.05, hspace=0.42)
+    for ax, (title, lo, hi) in zip(axes, RANGES):
+        E = np.zeros((len(rows), 15))
+        R = np.zeros((len(rows), 15))
+        for p in range(15):
+            for mi, m in enumerate(ms):
+                k, Df = D_cached(z, "fiducial", m)
+                sel = (k > lo) & (k <= hi)
+                scale = np.max(np.abs(Df[p][(k > 0.01) & (k < 1.0)]))
+                ch = lambda lab: 100 * np.mean(np.abs(D_cached(z, lab, m)[1][p][sel] - Df[p][sel])) / scale
+                nz = np.mean([ch(s_) for s_ in seeds]) / np.sqrt(2)
+                for r, (_, labels) in enumerate(rows):
+                    e = max(ch(l) for l in labels)
+                    E[r, p] = max(E[r, p], e)
+                    R[r, p] = max(R[r, p], e / nz)
+        # Colour and number: the effect in %; (number) in brackets: not larger than the noise of one run
+        im = ax.imshow(np.clip(E, 0.1, 30), cmap="Blues", norm=matplotlib.colors.LogNorm(0.1, 30), aspect="auto")
+        for r in range(len(rows)):
+            for c in range(15):
+                txt = f"{E[r, c]:.1f}" if E[r, c] < 99.5 else f"{E[r, c]:.0f}"
+                ax.text(c, r, f"({txt})" if R[r, c] < 1 else txt, ha="center", va="center", fontsize=7.5,
+                        color="white" if E[r, c] > 3 else INK)
+        ax.axhline(len(PARAMS) - 0.5, color="white", lw=4)
+        for c in range(1, 15):
+            if A.PAIRS[c][0] != A.PAIRS[c - 1][0]:
+                ax.axvline(c - 0.5, color="white", lw=3)
+        ax.set_xticks(range(15))
+        ax.set_xticklabels([f"${OPNAMES[i]} \\times {OPNAMES[j]}$" for i, j in A.PAIRS], fontsize=8.5, color=INK,
+                           rotation=35, ha="right")
+        ax.set_yticks(range(len(rows)))
+        ax.set_yticklabels([r[0] for r in rows], fontsize=9, color=INK)
+        ax.set_title(title, fontsize=11, color=INK, loc="left")
+        ax.tick_params(length=0)
+        for s_ in ax.spines.values():
+            s_.set_visible(False)
+    cax = fig.add_axes([0.93, 0.04, 0.01, 0.9])
+    cb = fig.colorbar(im, cax=cax)
+    cb.set_label("effect in % of max|D(fiducial)| of the spectrum (worst gravity model)", color=MUTED)
+    cb.outline.set_visible(False)
+    fig.suptitle(f"All 15 spectra: how much each parameter changes the mu - GR change D, z = {z:g}", x=0.02, ha="left",
+                 fontsize=14, color=INK, y=0.985)
+    fig.text(0.02, 0.955, "Colour and number: |D(cosmology) - D(fiducial)| in % of max|D(fiducial)| of that spectrum, worst "
+             "of -5 / +5 sigma and of the 7 gravity models.\n(Number) in brackets: the effect is not larger than the "
+             "realisation noise of one run (seeds 1001-1003) for that spectrum, i.e. not distinguishable from noise.",
+             fontsize=9, color=MUTED)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     plt.rcParams.update({"figure.facecolor": "#fcfcfb", "axes.facecolor": "#fcfcfb", "font.size": 10})
     path = os.path.join(ROOT, "figures", "mu_boost", "cosmology.pdf")
@@ -174,4 +246,6 @@ if __name__ == "__main__":
             overview(pdf, z)
         for z in (0.0, 1.0):
             kdependence(pdf, z)
+        for z in (0.0, 1.0):
+            all_spectra(pdf, z)
     print("Saved", path)

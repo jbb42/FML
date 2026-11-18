@@ -32,7 +32,9 @@ import time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-os.environ.setdefault("NBODY", os.path.join(os.path.dirname(os.path.dirname(HERE)), "SimulationCode", "nbody_float"))
+# The single-precision native build of FML 2.0 (build_euclid22.sh; regression-tested against the old nbody_float on
+# 2026-11-18: Zel'dovich prediction bit-identical, spectra to <= 4e-5 of sqrt(P_ii P_jj), 5% faster)
+os.environ.setdefault("NBODY", os.path.join(os.path.dirname(os.path.dirname(HERE)), "build_euclid22_float_v2", "nbody"))
 import runs  # noqa: E402
 from scan_planck import PLANCK  # noqa: E402
 
